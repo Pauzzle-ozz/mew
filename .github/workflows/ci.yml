@@ -37,10 +37,8 @@ jobs:
         working-directory: backend
 
     env:
-      # Puppeteer telecharge son propre Chromium a l'installation : 1,3 Go a
-      # chaque execution de la CI. On le desactive. C'est sans risque ici :
-      # puppeteer est en `optionalDependencies` et le code ne le charge qu'au
-      # moment d'un scraping reel, jamais au demarrage ni pendant les tests.
+      # Ceinture et bretelles avec --omit=optional plus bas : meme si
+      # puppeteer venait a etre installe, il ne telechargerait pas Chromium.
       PUPPETEER_SKIP_DOWNLOAD: "true"
 
     steps:
@@ -60,10 +58,23 @@ jobs:
       - name: Installer les dependances
         # `npm ci` installe exactement ce qui est dans package-lock.json, sans
         # jamais le modifier. C'est la commande faite pour les machines.
-        run: npm ci
+        #
+        # --omit=optional saute puppeteer (~300 Mo et une cascade de
+        # dependances transitives). Deux raisons, pas une :
+        #   1. La CI est plus rapide et cesse de casser a chaque fois que
+        #      puppeteer bouge une sous-dependance.
+        #   2. Surtout, ca TESTE le chemin d'installation legere documente
+        #      dans le README (PUPPETEER_SKIP_DOWNLOAD=true npm install).
+        #      L'absence de puppeteer ne doit desactiver que le rendu
+        #      JavaScript des pages scrapees, rien d'autre : le service le
+        #      charge paresseusement dans un try/catch. Si un jour quelqu'un
+        #      le remet en `require` au chargement d'un module, cette etape
+        #      deviendra rouge — et c'est exactement ce qu'on veut.
+        run: npm ci --omit=optional
 
       - name: Lancer les tests
         # Aucune cle API n'est necessaire : Mew doit fonctionner sans .env.
+        # C'est un invariant du projet, verifie ici a chaque contribution.
         run: npm test
 
   # ---------------------------------------------------------------------------
