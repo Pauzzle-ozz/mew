@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "libelle": "Bareme ATS Mew — 100 points",
+  "source": "Les 10 regles ATS de backend/src/prompts/optimiseCvPdf.js (lignes 26 a 56), transformees en criteres mesurables.",
+  "commentaire": "Ce fichier est LA definition du score. Le JavaScript ne fait qu'appliquer ce qui est ecrit ici : pour changer un poids, une cible ou un message, on edite ce fichier, pas le code. Regle a ne jamais casser : un critere qu'on ne peut pas mesurer sur un CV donne (aucune puce, aucun mot-cle de poste fourni) sort du calcul ET du denominateur. Sinon un infirmier perdrait des points sur des criteres qui ne le concernent pas.",
+  "familles": [
+    { "id": "structure", "libelle": "Structure des sections", "points": 18 },
+    { "id": "coordonnees", "libelle": "Coordonnees", "points": 14 },
+    { "id": "dates", "libelle": "Dates et chronologie", "points": 11 },
+    { "id": "longueur", "libelle": "Longueur", "points": 9 },
+    { "id": "redaction", "libelle": "Redaction", "points": 11 },
+    { "id": "resultats", "libelle": "Resultats chiffres", "points": 11 },
+    { "id": "motsCles", "libelle": "Mots-cles du poste", "points": 14 },
+    { "id": "technique", "libelle": "Compatibilite technique", "points": 12 }
+  ],
+  "criteres": [
+    {
+      "id": "structure_experiences",
+      "famille": "structure",
+      "libelle": "Section Experience presente",
+      "poids": 6,
+      "facilite": 4,
+      "messageOk": "Section Experience presente et exploitable ({x} experience(s) detectee(s)).",
+      "messageAction": "Aucune experience professionnelle n'a pu etre lue dans votre CV (-{p} pts). Ajoutez un titre EXPERIENCE PROFESSIONNELLE suivi de vos postes : c'est la premiere section que lit un ATS."
+    },
+    {
+      "id": "structure_formations",
+      "famille": "structure",
+      "libelle": "Section Formation presente",
+      "poids": 4,
+      "facilite": 2,
+      "messageOk": "Section Formation presente ({x} formation(s) detectee(s)).",
+      "messageAction": "Aucune formation n'a pu etre lue dans votre CV (-{p} pts). Ajoutez un titre FORMATION avec, pour chaque ligne : diplome, etablissement, annee."
+    },
+    {
+      "id": "structure_competences",
+      "famille": "structure",
+      "libelle": "Section Competences presente",
+      "poids": 4,
+      "facilite": 2,
+      "messageOk": "Section Competences presente ({x} competence(s) listee(s)).",
+      "messageAction": "Aucune section Competences n'a pu etre lue (-{p} pts). Listez 8 a 15 competences separees par des virgules : c'est la zone que les ATS indexent en priorite."
+    },
+    {
+      "id": "structure_resume",
+      "famille": "structure",
+      "libelle": "Resume professionnel present",
+      "poids": 4,
+      "facilite": 3,
+      "messageOk": "Resume professionnel present ({x} mots).",
+      "messageAction": "Aucun resume professionnel detecte en haut du CV (-{p} pts). Ajoutez 2 a 3 phrases : votre metier, vos annees d'experience, vos 2-3 competences phares."
+    },
+    {
+      "id": "contact_email",
+      "famille": "coordonnees",
+      "libelle": "Adresse e-mail valide",
+      "poids": 6,
+      "facilite": 1,
+      "messageOk": "Adresse e-mail detectee et valide ({x}).",
+      "messageAction": "Aucune adresse e-mail detectee (-{p} pts). Sans e-mail, un ATS ne peut pas creer votre fiche candidat : ajoutez-la dans l'en-tete du CV.",
+      "messageActionPartiel": "L'adresse e-mail detectee n'est pas exploitable : {x} (-{p} pts). Verifiez qu'elle est ecrite en un seul morceau, sans espace ni coupure de ligne."
+    },
+    {
+      "id": "contact_telephone",
+      "famille": "coordonnees",
+      "libelle": "Numero de telephone valide",
+      "poids": 4,
+      "facilite": 1,
+      "messageOk": "Numero de telephone detecte ({x}).",
+      "messageAction": "Aucun numero de telephone detecte (-{p} pts). Ajoutez-le dans l'en-tete : c'est 10 secondes de travail pour {poids} points.",
+      "messageActionPartiel": "Le numero detecte n'a pas un format reconnaissable : {x} (-{p} pts). Ecrivez-le d'un bloc, par exemple 06 12 34 56 78."
+    },
+    {
+      "id": "contact_ville",
+      "famille": "coordonnees",
+      "libelle": "Ville ou zone geographique presente",
+      "poids": 4,
+      "facilite": 1,
+      "messageOk": "Localisation presente ({x}).",
+      "messageAction": "Aucune ville ni code postal detecte (-{p} pts). Les recruteurs filtrent par zone geographique : une ville suffit, l'adresse complete n'est pas necessaire."
+    },
+    {
+      "id": "dates_presentes",
+      "famille": "dates",
+      "libelle": "Experiences datees",
+      "poids": 5,
+      "facilite": 2,
+      "regleRatio": true,
+      "messageOk": "Vos {y} experiences portent une date de debut.",
+      "messageAction": "{x} de vos {y} experiences portent une date, soit {pct}% (-{p} pts). Un ATS classe les postes par date : une experience sans date peut etre ignoree."
+    },
+    {
+      "id": "dates_coherentes",
+      "famille": "dates",
+      "libelle": "Dates coherentes",
+      "poids": 4,
+      "facilite": 2,
+      "regleRatio": true,
+      "messageOk": "Les {y} experiences datees ont des dates coherentes.",
+      "messageAction": "{z} experience(s) sur {y} ont des dates impossibles (fin avant le debut, ou annee hors plage) (-{p} pts). Corrigez-les : un ATS qui n'arrive pas a calculer une duree passe au dossier suivant."
+    },
+    {
+      "id": "dates_ordre",
+      "famille": "dates",
+      "libelle": "Chronologie inversee",
+      "poids": 2,
+      "facilite": 2,
+      "messageOk": "Vos experiences sont bien en chronologie inversee (la plus recente en premier).",
+      "messageAction": "Vos experiences ne sont pas en chronologie inversee (-{p} pts). Placez le poste le plus recent en premier : c'est la convention attendue, et le premier poste est celui qui est lu."
+    },
+    {
+      "id": "longueur_cv",
+      "famille": "longueur",
+      "libelle": "Longueur du CV",
+      "poids": 6,
+      "facilite": 3,
+      "messageOk": "Longueur adaptee : {x} mots (cible {min} a {max}).",
+      "messageActionSous": "Votre CV fait {x} mots, c'est trop court (cible : {min} a {max}) (-{p} pts). Detaillez vos missions : un CV trop maigre ne contient pas assez de mots-cles pour ressortir dans une recherche.",
+      "messageActionSur": "Votre CV fait {x} mots, c'est trop long (cible : {min} a {max}) (-{p} pts). Gardez les 3 postes les plus recents et 3 a 4 puces par poste.",
+      "messageAction": "Longueur du CV hors cible : {x} mots au lieu de {min} a {max} (-{p} pts)."
+    },
+    {
+      "id": "longueur_resume",
+      "famille": "longueur",
+      "libelle": "Longueur du resume",
+      "poids": 3,
+      "facilite": 2,
+      "messageOk": "Resume de bonne longueur : {x} mots (cible {min} a {max}).",
+      "messageActionSous": "Votre resume fait {x} mots, c'est trop court (cible : {min} a {max}) (-{p} pts). Une phrase de plus suffit : metier + annees d'experience + competences phares.",
+      "messageActionSur": "Votre resume fait {x} mots, c'est trop long (cible : {min} a {max}) (-{p} pts). Un recruteur lit ce bloc en 5 secondes : 2 a 3 phrases maximum.",
+      "messageAction": "Longueur du resume hors cible : {x} mots au lieu de {min} a {max} (-{p} pts)."
+    },
+    {
+      "id": "redaction_verbes",
+      "famille": "redaction",
+      "libelle": "Puces commencant par un verbe d'action",
+      "poids": 7,
+      "facilite": 4,
+      "regleRatio": true,
+      "messageOk": "{x} de vos {y} puces commencent par un verbe d'action, soit {pct}%.",
+      "messageAction": "{x} de vos {y} puces commencent par un verbe d'action, soit {pct}% (-{p} pts). Visez {cible}% : remplacez « Responsable de la maintenance » par « Assure la maintenance », « En charge des soins » par « Realise les soins »."
+    },
+    {
+      "id": "redaction_longueur_puces",
+      "famille": "redaction",
+      "libelle": "Longueur moyenne des puces",
+      "poids": 4,
+      "facilite": 4,
+      "messageOk": "Vos puces font {x} mots en moyenne (cible {min} a {max}).",
+      "messageActionSous": "Vos puces font {x} mots en moyenne, c'est tres court (cible : {min} a {max}) (-{p} pts). Une puce doit dire ce que vous avez fait ET avec quel resultat.",
+      "messageActionSur": "Vos puces font {x} mots en moyenne, c'est trop long (cible : {min} a {max}) (-{p} pts). Une puce = une idee : coupez les phrases a rallonge en deux.",
+      "messageAction": "Longueur moyenne des puces hors cible : {x} mots au lieu de {min} a {max} (-{p} pts)."
+    },
+    {
+      "id": "resultats_chiffres",
+      "famille": "resultats",
+      "libelle": "Puces contenant un chiffre",
+      "poids": 8,
+      "facilite": 5,
+      "regleRatio": true,
+      "messageOk": "{x} de vos {y} puces contiennent un chiffre, soit {pct}%.",
+      "messageAction": "{x} de vos {y} puces contiennent un chiffre, soit {pct}% (-{p} pts). Visez {cible}% : « suivi de 25 patients par jour », « 12 chantiers livres », « equipe de 6 personnes ». Un ordre de grandeur vaut mieux que rien."
+    },
+    {
+      "id": "resultats_impact",
+      "famille": "resultats",
+      "libelle": "Au moins un pourcentage ou un montant",
+      "poids": 3,
+      "facilite": 4,
+      "messageOk": "Au moins un resultat exprime en pourcentage ou en montant.",
+      "messageAction": "Aucune de vos {y} puces ne contient de pourcentage ni de montant (-{p} pts). Un seul suffit a changer la lecture : « environ 20 % de temps gagne », « budget de 15 000 EUR »."
+    },
+    {
+      "id": "motscles_couverture",
+      "famille": "motsCles",
+      "libelle": "Couverture des mots-cles du poste",
+      "poids": 10,
+      "facilite": 5,
+      "regleRatio": true,
+      "messageOk": "{x} des {y} mots-cles du poste apparaissent dans votre CV, soit {pct}%.",
+      "messageAction": "{x} des {y} mots-cles du poste apparaissent dans votre CV, soit {pct}% (-{p} pts). Absents : {manquants}. N'ajoutez que ceux que vous maitrisez vraiment : les autres sont un axe de formation, pas un axe de reecriture."
+    },
+    {
+      "id": "motscles_resume",
+      "famille": "motsCles",
+      "libelle": "Mots-cles du poste dans le resume",
+      "poids": 4,
+      "facilite": 2,
+      "messageOk": "Votre resume reprend {x} mot(s)-cle(s) du poste.",
+      "messageAction": "Aucun des {y} mots-cles du poste n'apparait dans votre resume (-{p} pts). Reprenez 2 ou 3 termes exacts de l'offre des les premieres lignes : c'est la zone que l'ATS pondere le plus."
+    },
+    {
+      "id": "technique_texte_extractible",
+      "famille": "technique",
+      "libelle": "Texte reellement extractible du PDF",
+      "poids": 4,
+      "facilite": 5,
+      "messageOk": "Le texte du CV est correctement extractible ({x} caracteres).",
+      "messageAction": "Seulement {x} caracteres de texte ont pu etre extraits (-{p} pts). C'est la signature d'un PDF scanne, c'est-a-dire une image : aucun ATS ne peut le lire. Reexportez votre CV depuis Word, Google Docs ou Canva au format PDF."
+    },
+    {
+      "id": "technique_mise_en_page",
+      "famille": "technique",
+      "libelle": "Absence de tableaux et de colonnes",
+      "poids": 4,
+      "facilite": 5,
+      "messageOk": "Aucune trace de tableau ou de colonnes dans le texte extrait.",
+      "messageAction": "{x} ligne(s) sur {y} portent des marques de tableau ou de colonnes (-{p} pts). Un ATS lit un tableau en melangeant les colonnes : repassez ces blocs en texte simple, sur une seule colonne."
+    },
+    {
+      "id": "technique_caracteres",
+      "famille": "technique",
+      "libelle": "Absence de caracteres illisibles",
+      "poids": 4,
+      "facilite": 3,
+      "messageOk": "Aucun caractere illisible dans le texte extrait.",
+      "messageAction": "{x} caractere(s) illisible(s) detecte(s) dans le texte extrait (-{p} pts). Ce sont en general des icones ou une police exotique : remplacez-les par du texte, un ATS les recoit comme des symboles vides."
+    }
+  ],
+  "reglages": {
+    "longueurCvMotsMin": 300,
+    "longueurCvMotsMax": 900,
+    "longueurResumeMotsMin": 30,
+    "longueurResumeMotsMax": 100,
+    "longueurPuceMotsMin": 6,
+    "longueurPuceMotsMax": 30,
+    "ratioVerbesCible": 0.8,
+    "ratioChiffresCible": 0.5,
+    "ratioMotsClesCible": 0.7,
+    "caracteresExtraitsMin": 200,
+    "caracteresExtraitsOk": 400,
+    "anneeExperienceMin": 1950,
+    "anneeDebutMarge": 1,
+    "anneeFinMarge": 2,
+    "commentaire": "Ces bornes sont les cibles chiffrees des criteres. Elles viennent des regles 5, 6 et 7 du prompt d'origine (resume 50-80 mots, puces 60-150 caracteres, 8-15 competences) et de la contrainte 1 page A4."
+  }
+}

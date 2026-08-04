@@ -1,0 +1,34 @@
+{
+  "name": "mew-frontend",
+  "version": "1.0.0",
+  "description": "Interface web de Mew : les 5 outils de recherche d'emploi.",
+  "private": true,
+  "license": "MIT",
+  "author": "Pauzzle-ozz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pauzzle-ozz/mew.git",
+    "directory": "frontend"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.0",
+    "next": "^16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.4",
+    "tailwindcss": "^4"
+  }
+}

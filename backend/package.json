@@ -1,0 +1,53 @@
+{
+  "name": "mew-backend",
+  "version": "1.0.0",
+  "description": "API de Mew : analyse et optimisation de CV, matching d'offres, candidatures. Le coeur est du calcul local ; le LLM n'est appele que pour la redaction.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "license": "MIT",
+  "author": "Pauzzle-ozz",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pauzzle-ozz/mew.git",
+    "directory": "backend"
+  },
+  "keywords": [
+    "emploi",
+    "cv",
+    "ats",
+    "recherche-emploi",
+    "open-source",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/server.js",
+    "test": "node --test",
+    "data:fetch": "node scripts/fetch-rome.js",
+    "data:build": "node --max-old-space-size=3072 scripts/build-rome.js",
+    "data:update": "npm run data:fetch && npm run data:build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "axios": "^1.13.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "multer": "^2.0.2",
+    "openai": "^6.19.0",
+    "pdf-parse": "^1.1.1",
+    "resend": "^6.9.1"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^24.36.1"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "nodemon": "^3.1.11"
+  }
+}

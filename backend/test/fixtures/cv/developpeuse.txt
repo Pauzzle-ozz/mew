@@ -1,0 +1,46 @@
+Camille Martin
+Developpeuse Full Stack
+06 12 34 56 78 | camille.martin@exemple.fr
+linkedin.com/in/camille-martin-exemple | github.com/camille-exemple
+12 rue des Lilas, 75011 Paris
+
+PROFIL
+Developpeuse full stack, 6 ans d'experience sur des applications web a fort trafic.
+Autonome sur toute la chaine, du modele de donnees a la mise en production.
+
+EXPERIENCE PROFESSIONNELLE
+--------------------------
+
+Developpeuse Full Stack — Acme SAS
+Janvier 2022 - Mars 2024
+- Refonte du back-office en React et Node.js
+- Mise en place des tests automatises et de la chaine d'integration continue
+- Encadrement de deux alternants
+
+Developpeuse Web (freelance)
+Mars 2020 - Fevrier 2022
+- Sites vitrines et boutiques en ligne pour des PME
+- Optimisation des performances et du referencement
+
+Developpeuse Junior — Studio Bleu
+Septembre 2018 - Fevrier 2020
+- Integration de maquettes et corrections de bugs
+
+FORMATION
+
+Master Informatique — Universite de Lyon
+2015 - 2017
+
+Licence Mathematiques et Informatique — Universite de Lyon
+2012 - 2015
+
+COMPETENCES
+JavaScript, TypeScript, React, Node.js, PostgreSQL
+Docker | Git | Integration continue
+Methodologie agile, revue de code
+
+LANGUES
+Francais (langue maternelle), Anglais (courant), Espagnol (notions)
+
+CENTRES D'INTERET
+Escalade, photographie argentique, cuisine

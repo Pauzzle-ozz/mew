@@ -1,0 +1,21 @@
+# Normalisation des fins de ligne.
+# Le projet se developpe sous Windows (CRLF) mais les contributeurs peuvent
+# etre sous Linux ou macOS (LF). Sans ce fichier, git verrait des fichiers
+# entierement modifies a chaque aller-retour entre les deux systemes.
+
+* text=auto eol=lf
+
+# Scripts Windows : doivent garder des fins de ligne CRLF pour rester executables
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Fichiers binaires : git ne doit jamais y toucher
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

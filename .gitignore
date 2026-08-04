@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------
+# Dependances
+# ---------------------------------------------------------------
+node_modules/
+
+# ---------------------------------------------------------------
+# Variables d'environnement
+# On ignore TOUS les .env, sauf les modeles .env.example qui, eux,
+# doivent absolument rester versionnes (ils ne contiennent aucun secret).
+# ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------
+# Donnees locales de l'utilisateur
+# Mew stocke les candidatures et l'historique dans un fichier local :
+# ce sont des donnees personnelles, elles ne doivent jamais partir sur GitHub.
+# ---------------------------------------------------------------
+backend/data/
+*.pdf
+uploads/
+tmp/
+
+# ---------------------------------------------------------------
+# Build et cache
+# ---------------------------------------------------------------
+.next/
+out/
+dist/
+build/
+.cache/
+coverage/
+*.tsbuildinfo
+.vercel
+
+# ---------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------------------------------------------------------------
+# Outils de developpement (preferences personnelles, pas du projet)
+# ---------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.claude/settings.local.json
+.skills/
+
+# ---------------------------------------------------------------
+# Fichiers generes par le systeme d'exploitation
+# ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
