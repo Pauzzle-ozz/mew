@@ -10,7 +10,7 @@ cd mew
 cd backend && npm install && cd ../frontend && npm install
 ```
 
-Aucune clé API n'est nécessaire pour développer : le serveur démarre sans configuration et vous annonce ce qui est actif. Vous n'avez besoin d'une clé OpenAI que si vous travaillez sur les trois fonctions de rédaction.
+Aucune clé API n'est nécessaire pour développer : le serveur démarre sans configuration et vous annonce ce qui est actif. Vous n'avez besoin d'une clé que si vous travaillez sur les fonctions de rédaction — et dans ce cas, un modèle local via **Ollama** suffit et ne coûte rien : choisissez-le dans l'écran Paramètres (http://localhost:3000/parametres).
 
 Deux terminaux : `cd backend && npm run dev` et `cd frontend && npm run dev`.
 
@@ -55,15 +55,72 @@ Pourquoi c'est important : un score inventé par un modèle change à chaque app
 | Changer la logique métier | `backend/src/services/` |
 | Changer où sont rangées les données | `backend/src/storage/` — deux adaptateurs, une seule interface |
 | Ajouter une variable de configuration | `backend/src/config/index.js` **et** `backend/.env.example` |
-| Changer le modèle utilisé | `backend/.env` — les modèles sont désignés par rôle, jamais écrits dans le code |
+| Changer le modèle utilisé | l'écran **Paramètres** — les modèles sont désignés par rôle (`redaction`, `extraction`), jamais écrits dans le code métier |
+| **Ajouter un fournisseur d'IA** | `backend/src/llm/providers/catalogue.js` — voir juste en dessous |
+| Ajouter un protocole d'API | `backend/src/llm/adapters/` — seulement si le fournisseur ne parle pas le format OpenAI |
 | Ajouter une page | `frontend/app/` |
 | Modifier les couleurs, le thème | `frontend/app/globals.css` (variables CSS) |
+
+## Ajouter un fournisseur d'IA
+
+C'est la contribution la plus utile et la plus simple du projet : **c'est de la donnée, pas du code.**
+
+La quasi-totalité des services parlent le format d'API d'OpenAI. Dans ce cas, il suffit de copier une entrée dans `backend/src/llm/providers/catalogue.js` :
+
+```js
+{
+  id: 'monfournisseur',
+  nom: 'Mon Fournisseur',
+  adaptateur: 'openai-compatible',        // ou 'anthropic', ou 'google'
+  baseURL: 'https://api.exemple.com/v1',  // null si l'utilisateur doit la saisir
+  cleRequise: true,                       // false pour un service local
+  urlCle: 'https://exemple.com/api-keys', // où l'on crée une clé, ou null
+  prefixeCle: 'sk-',                      // contrôle de saisie indicatif, ou null
+  local: false,                           // true = tourne sur la machine de l'utilisateur
+  paliergratuit: false,                   // true si un usage gratuit RÉEL existe
+  listageDynamique: true,                 // l'adaptateur sait lister les modèles
+  note: '',                               // une phrase affichée à l'utilisateur
+  modeles: [
+    {
+      id: 'super-modele-1',       // la chaîne EXACTE envoyée au fournisseur
+      nom: 'Super Modèle 1',      // le nom lisible, affiché dans l'interface
+      entree: 2.50,               // dollars par MILLION de tokens en entrée
+      sortie: 10.00,              // idem en sortie
+      contexte: 128000,           // taille de la fenêtre, en tokens
+      roles: ['redaction', 'extraction']
+    }
+  ]
+}
+```
+
+Aucun autre fichier n'a besoin d'être touché. `backend/test/catalogue.test.js` vérifiera que votre entrée est complète.
+
+Quatre choses à respecter :
+
+- **N'inventez jamais un `id` de modèle.** Un nom faux donne à l'utilisateur une erreur incompréhensible. Copiez-le depuis la documentation du fournisseur.
+- **Deux à cinq modèles par fournisseur, pas tout son catalogue.** Un bon modèle de rédaction, un rapide et économique pour l'extraction, éventuellement un intermédiaire. Trop de choix paralyse.
+- **`paliergratuit: true` seulement si un usage gratuit réel existe** — pas un crédit d'essai de 5 $.
+- **Si le fournisseur a une contrepartie, dites-la dans `note`** : requêtes exploitées pour l'entraînement, serveurs dans une juridiction particulière. L'utilisateur envoie son CV, il a le droit de savoir.
+
+Mettez à jour `verifieLe` en haut du fichier si vous avez revérifié les tarifs.
+
+### Écrire un adaptateur
+
+Seulement si le fournisseur ne parle pas le format OpenAI. Il y en a trois aujourd'hui : `openai-compatible`, `anthropic` et `google`. **N'installez pas le SDK du fournisseur** : `fetch` est natif dans Node, et le SDK `openai` déjà présent couvre tout le reste.
+
+Deux méthodes, décrites en tête de `backend/src/llm/adapters/openaiCompatible.js`. Et une règle qui ne se négocie pas : **toute erreur levée porte un `.code`** parmi `CLE_INVALIDE`, `QUOTA_DEPASSE`, `MODELE_INTROUVABLE`, `TIMEOUT`, `RESEAU`, `FOURNISSEUR`, et un `.message` **en français, compréhensible par quelqu'un qui ne programme pas** :
+
+> « Ollama ne répond pas sur http://localhost:11434. Vérifie qu'il est lancé. »
+
+Ne laissez jamais remonter un message brut de SDK en anglais. C'est ce code qui permet à l'écran Paramètres de dire *où* ça s'arrête, et donc quel geste faire : relancer Ollama, recopier une clé, recharger un compte, corriger un nom de modèle.
 
 ## Deux règles de code à ne pas enfreindre
 
 **1. Aucun `fetch` direct dans une page.** Tous les appels au backend passent par `frontend/lib/api/`. C'est ce qui permet de changer la gestion des erreurs ou d'ajouter un en-tête d'authentification à un seul endroit.
 
-**2. Aucun client externe créé au chargement d'un fichier.** OpenAI, Resend et Supabase sont instanciés à la première utilisation réelle. Sinon, une clé absente ne désactive pas une fonctionnalité : elle empêche le serveur entier de démarrer, avec un message d'erreur venu d'une bibliothèque tierce qui ne mentionne ni Mew ni le fichier `.env`.
+**2. Aucun client externe créé au chargement d'un fichier.** Le fournisseur d'IA, Resend et Supabase sont instanciés à la première utilisation réelle. Sinon, une clé absente ne désactive pas une fonctionnalité : elle empêche le serveur entier de démarrer, avec un message d'erreur venu d'une bibliothèque tierce qui ne mentionne ni Mew ni sa configuration. **Le serveur doit toujours démarrer, même sans aucune configuration.**
+
+**3. Une clé API ne quitte jamais le backend.** Elle ne repart pas vers le navigateur (seule `configUtilisateur.lireMasquee()` a le droit de décrire la configuration vers l'extérieur, et elle rend `sk-p...4f2a`), elle n'apparaît dans aucun log, dans aucun message d'erreur, et ne transite jamais dans une URL.
 
 ## Par où commencer
 
@@ -80,4 +137,4 @@ Le détail de tout ça, avec les fichiers et les numéros de ligne, est dans [do
 
 Dites ce que vous attendiez, ce qui s'est passé, et comment le reproduire. Précisez votre système, votre version de Node (`node -v`) et si vous utilisez une clé API ou non.
 
-**N'incluez jamais votre vrai CV** dans un rapport de bug ou un fichier de test : ce dépôt est public.
+**N'incluez jamais votre vrai CV ni une clé API** dans un rapport de bug, une capture d'écran ou un fichier de test : ce dépôt est public. Si vous avez publié une clé par accident, révoquez-la chez le fournisseur — la retirer du commit ne suffit pas.

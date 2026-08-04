@@ -10,6 +10,9 @@
  * Une cle absente desactive une fonctionnalite, elle ne casse pas l'app.
  */
 
+const configUtilisateur = require('../llm/configUtilisateur');
+const { fournisseur: fournisseurDuCatalogue } = require('../llm/providers');
+
 const nombre = (valeur, defaut) => {
   const n = Number(valeur);
   return Number.isFinite(n) ? n : defaut;
@@ -34,19 +37,14 @@ const config = {
   },
 
   ia: {
-    cleApi: process.env.OPENAI_API_KEY || '',
-    // Vide = API OpenAI officielle. Rempli = n'importe quel service
-    // compatible OpenAI (Ollama, LM Studio, Groq, Mistral...).
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
     timeoutMs: nombre(process.env.AI_TIMEOUT_MS, 120000),
-    // Les modeles sont designes par ROLE, jamais par nom dans le code metier.
-    modeles: {
-      redaction: process.env.AI_MODEL_REDACTION || 'gpt-4o',
-      extraction: process.env.AI_MODEL_EXTRACTION || 'gpt-4.1-mini'
-    },
     // 0 = pas de limite. Utile en usage local solo : c'est l'utilisateur
     // qui paie sa propre cle, il n'a pas besoin qu'on le bride.
     limiteRequetes: nombre(process.env.AI_RATE_LIMIT_MAX, 200)
+    // cleApi, baseURL, modeles, fournisseur, adaptateur et source sont
+    // ajoutes plus bas : ce sont des proprietes CALCULEES, parce que
+    // l'utilisateur peut changer de fournisseur pendant que le serveur
+    // tourne (voir la section « moteur d'IA effectif »).
   },
 
   email: {
@@ -85,6 +83,117 @@ const config = {
   }
 };
 
+/* ------------------------------------------------------------------ */
+/* LE MOTEUR D'IA EFFECTIF                                             */
+/* ------------------------------------------------------------------ */
+/**
+ * Mew a desormais DEUX sources possibles pour son moteur d'IA :
+ *
+ *   1. backend/.env, quand il definit OPENAI_API_KEY. Prioritaire, toujours.
+ *      Quelqu'un peut installer Mew POUR d'autres (serveur partage,
+ *      association, centre de formation) et vouloir imposer sa configuration :
+ *      dans ce cas, l'interface affiche le choix comme verrouille.
+ *   2. backend/data/config-ia.json, le choix fait par l'utilisateur depuis
+ *      l'interface (voir src/llm/configUtilisateur.js).
+ *   3. Rien du tout — et Mew demarre quand meme. C'est un invariant du projet.
+ *
+ * Ces valeurs sont exposees comme des proprietes CALCULEES et non figees a
+ * l'import : l'utilisateur peut changer de fournisseur pendant que le serveur
+ * tourne, et le prochain appel doit en tenir compte sans redemarrage.
+ * `config.ia.cleApi`, `config.ia.baseURL` et `config.ia.modeles` gardent
+ * exactement le meme sens et le meme type qu'avant : aucun appelant existant
+ * n'a besoin d'etre modifie.
+ */
+
+// Ce que le .env dit, une fois pour toutes. Ce fichier reste le seul du projet
+// a lire process.env.
+const IA_ENV = {
+  cleApi: process.env.OPENAI_API_KEY || '',
+  // Vide = API OpenAI officielle. Rempli = n'importe quel service compatible
+  // OpenAI (Ollama, LM Studio, Groq, Mistral...).
+  baseURL: process.env.OPENAI_BASE_URL || '',
+  modeles: {
+    redaction: process.env.AI_MODEL_REDACTION || '',
+    extraction: process.env.AI_MODEL_EXTRACTION || ''
+  }
+};
+
+// Les modeles sont designes par ROLE, jamais par nom, dans le code metier.
+const MODELES_DEFAUT = { redaction: 'gpt-4o', extraction: 'gpt-4.1-mini' };
+
+/**
+ * Qui a le dernier mot ?
+ * @returns {'env'|'fichier'|'aucune'}
+ */
+function sourceIa() {
+  if (!vide(IA_ENV.cleApi)) return 'env';
+  // Le fichier utilisateur ne compte que s'il est reellement exploitable :
+  // une configuration a moitie remplie ne doit pas masquer un OPENAI_BASE_URL
+  // parfaitement valide.
+  if (configUtilisateur.estConfigure()) return 'fichier';
+  if (!vide(IA_ENV.baseURL)) return 'env';
+  return 'aucune';
+}
+
+/**
+ * La configuration reellement utilisee pour appeler un modele.
+ * Recalculee a chaque lecture : c'est bon marche (un objet en memoire) et ca
+ * evite tout probleme de valeur perimee.
+ */
+function iaEffective() {
+  const source = sourceIa();
+
+  if (source === 'fichier') {
+    const choix = configUtilisateur.lire();
+    const f = fournisseurDuCatalogue(choix.fournisseur);
+    return {
+      source,
+      fournisseur: choix.fournisseur,
+      adaptateur: (f && f.adaptateur) || 'openai-compatible',
+      cleApi: choix.cleApi,
+      // Repli sur le catalogue : un fichier ecrit a la main peut ne pas
+      // porter d'adresse alors que son fournisseur en a une.
+      baseURL: choix.baseURL || (f && f.baseURL) || '',
+      modeles: {
+        redaction: choix.modeles.redaction || choix.modeles.extraction || MODELES_DEFAUT.redaction,
+        extraction: choix.modeles.extraction || choix.modeles.redaction || MODELES_DEFAUT.extraction
+      }
+    };
+  }
+
+  return {
+    source,
+    // Une adresse personnalisee dans le .env, c'est par definition un service
+    // qu'on ne nomme pas ; sinon c'est OpenAI.
+    fournisseur: source === 'env' ? (vide(IA_ENV.baseURL) ? 'openai' : 'personnalise') : '',
+    adaptateur: 'openai-compatible',
+    cleApi: IA_ENV.cleApi,
+    baseURL: IA_ENV.baseURL,
+    modeles: {
+      redaction: IA_ENV.modeles.redaction || MODELES_DEFAUT.redaction,
+      extraction: IA_ENV.modeles.extraction || MODELES_DEFAUT.extraction
+    }
+  };
+}
+
+Object.defineProperties(config.ia, {
+  source: { enumerable: true, get: () => iaEffective().source },
+  fournisseur: { enumerable: true, get: () => iaEffective().fournisseur },
+  adaptateur: { enumerable: true, get: () => iaEffective().adaptateur },
+  cleApi: { enumerable: true, get: () => iaEffective().cleApi },
+  baseURL: {
+    enumerable: true,
+    // undefined et non '' : le SDK OpenAI attend soit une adresse, soit rien
+    // du tout. Une chaine vide le ferait appeler « /chat/completions » sur le
+    // vide. C'etait deja le comportement avant, on le preserve.
+    get: () => iaEffective().baseURL || undefined
+  },
+  modeles: { enumerable: true, get: () => iaEffective().modeles },
+  // La configuration MASQUEE du fichier utilisateur, pour les routes de
+  // reglages. La cle en clair ne passe jamais par ici.
+  choixUtilisateur: { enumerable: false, get: () => configUtilisateur.lireMasquee() }
+});
+
 /**
  * Ce que l'application sait faire, compte tenu de ce qui est configure.
  * Sert au message de demarrage et a la route GET /api/capacites, que le
@@ -92,6 +201,8 @@ const config = {
  */
 config.capacites = {
   get ia() {
+    // Aucune source, ni .env ni choix de l'utilisateur : rien a faire.
+    if (config.ia.source === 'aucune') return false;
     // Un serveur local (Ollama) ignore la cle mais le SDK exige qu'elle
     // soit non vide : une baseURL personnalisee suffit donc.
     return !vide(config.ia.cleApi) || !vide(config.ia.baseURL);
@@ -128,9 +239,21 @@ config.capacites = {
  */
 config.resume = () => {
   const oui = (v) => (v ? 'actif' : 'inactif');
-  const moteurIa = config.capacites.ia
-    ? (config.ia.baseURL ? `personnalise (${config.ia.baseURL})` : 'OpenAI')
-    : 'inactif';
+
+  // On nomme la source : c'est la premiere question de quelqu'un qui a
+  // configure son moteur depuis l'interface et se demande si c'est bien
+  // celui-la qui sert (ou pourquoi le .env gagne).
+  let moteurIa;
+  if (!config.capacites.ia) {
+    moteurIa = 'inactif';
+  } else {
+    const ia = config.ia;
+    const ou = ia.source === 'fichier' ? 'choisi dans l\'interface' : 'impose par backend/.env';
+    const nom = ia.fournisseur === 'personnalise' || !ia.fournisseur
+      ? (ia.baseURL || 'personnalise')
+      : ia.fournisseur;
+    moteurIa = `${nom} - ${ia.modeles.redaction} / ${ia.modeles.extraction} (${ou})`;
+  }
 
   // On dit la verite sur l'authentification au demarrage : c'est la seule
   // ligne qui indique si les donnees sont protegees ou non.

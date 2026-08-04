@@ -27,13 +27,51 @@ Concrètement : un score ATS obtenu deux fois sur le même CV donne deux fois le
 | **Candidature spontanée** | Rédige un email d'approche et l'envoie avec votre CV en pièce jointe |
 | **Suivi de candidatures** | Vos candidatures, leur statut, et les relances à faire |
 
-## Fonctionne sans clé API
+## Choisissez votre fournisseur et votre modèle
 
-Une clé OpenAI n'est **pas** obligatoire. Sans elle, tout ce qui relève du calcul continue de fonctionner ; seule la rédaction assistée est désactivée. Le serveur vous annonce au démarrage ce qui est actif.
+Mew ne vous impose **aucun** fournisseur d'IA. Vous choisissez le vôtre, et le modèle précis que vous voulez : ChatGPT, Claude, Gemini, Kimi, Mistral, DeepSeek, Grok, ou un modèle qui tourne sur votre propre ordinateur. La seule condition : **vous apportez votre clé** (sauf pour les modèles locaux, qui n'en demandent pas).
 
-Ajouter une clé débloque trois choses, et seulement trois : la lettre de motivation, l'email de candidature, et la reformulation de vos phrases d'expérience.
+**Tout se fait dans l'écran Paramètres**, à l'adresse http://localhost:3000/parametres. Plus besoin d'ouvrir un fichier de configuration dans un éditeur de texte. Le parcours tient en cinq temps : chez qui → votre clé → vos modèles → un test → enregistrer.
 
-Vous pouvez aussi pointer Mew vers un modèle qui tourne sur votre propre ordinateur (Ollama, LM Studio) : c'est une ligne dans le fichier de configuration, aucun code à modifier.
+Le bouton **Tester** ne se contente pas de vérifier que la clé passe. Il envoie au modèle une demande miniature (quelques dizaines de tokens, moins d'un dixième de centime) au format exact que Mew utilise en production, et découpe la réponse avec le vrai code du projet. Vous savez donc avant d'enregistrer si ce modèle-là sait suivre les consignes — un petit modèle local peut très bien répondre `200 OK` et ignorer complètement le format demandé.
+
+### Fournisseurs proposés
+
+| Fournisseur | Clé requise | Gratuit | Remarque |
+|---|:---:|:---:|---|
+| **Ollama** | non | ✅ local | Rien ne sort de votre machine. Doit être lancé. |
+| **LM Studio** | non | ✅ local | Activez le serveur local (onglet *Developer*). |
+| **llama.cpp** | non | ✅ local | `llama-server`, port 8080 par défaut. |
+| **OpenAI** | oui | non | Le plus répandu. |
+| **Anthropic (Claude)** | oui | non | Excellent en rédaction. |
+| **Google (Gemini)** | oui | ✅ palier gratuit | Google exploite les requêtes gratuites : n'y envoyez pas un CV sensible. |
+| **Mistral AI** | oui | ✅ palier gratuit | Français, données hébergées en Europe. |
+| **Moonshot (Kimi)** | oui | non | Bon rapport qualité/prix. |
+| **DeepSeek** | oui | non | Parmi les moins chers. Serveurs en Chine. |
+| **xAI (Grok)** | oui | non | |
+| **Groq** | oui | ✅ palier gratuit | Modèles ouverts, très rapide. |
+| **Cerebras** | oui | ✅ palier gratuit | Palier gratuit quotidien. |
+| **Together AI** | oui | non | Revendeur de modèles ouverts. |
+| **Fireworks AI** | oui | non | Revendeur de modèles ouverts. |
+| **OpenRouter** | oui | ✅ palier gratuit | Une seule clé, des centaines de modèles. Bon point d'entrée si vous hésitez. |
+| **Autre (compatible OpenAI)** | au choix | — | Vous saisissez l'adresse vous-même. Aucun service n'est hors de portée. |
+
+Le catalogue affiche pour chaque modèle son tarif (dollars par million de tokens) et la taille de sa fenêtre de contexte. **Ces prix sont des ordres de grandeur**, vérifiés le 4 août 2026 : les fournisseurs changent leurs grilles sans prévenir, seul le fournisseur fait foi.
+
+Chez Ollama, LM Studio, llama.cpp et OpenRouter, la liste des modèles est demandée **en direct** au service : elle correspond à ce que vous avez réellement installé ou à ce qui est réellement disponible.
+
+### Deux modèles, deux rôles
+
+Mew désigne les modèles par **rôle**, jamais par nom dans le code :
+
+- **rédaction** — écrire un texte lu par un humain (lettre, email). La qualité prime.
+- **extraction** — structurer, reformater (lire un CV, en sortir un profil). La rapidité et le coût priment.
+
+Vous pouvez en choisir un par rôle, ou le même pour les deux si vous ne voulez pas vous poser de questions.
+
+### Fonctionne sans aucune clé
+
+Aucune clé n'est obligatoire. Sans configuration, tout ce qui relève du calcul continue de fonctionner ; seule la rédaction assistée est désactivée. **Le serveur démarre toujours** et vous annonce au démarrage ce qui est actif.
 
 ### Ce qui est calculé, ce qui est rédigé
 
@@ -48,6 +86,8 @@ Vous pouvez aussi pointer Mew vers un modèle qui tourne sur votre propre ordina
 | Relances, jours ouvrés, statistiques | |
 
 Un même CV analysé deux fois donne **exactement le même résultat**, et chaque note peut être expliquée ligne par ligne.
+
+Il ne reste que **6 appels à un modèle dans tout le projet**, tous de la rédaction. C'est aussi pourquoi le choix du fournisseur vous appartient sans risque : moins il y a d'appels, moins vous êtes lié à qui que ce soit — et moins ça vous coûte.
 
 > **Refonte en cours.** Le projet vient d'un modèle où *tout* passait par OpenAI, scores compris. L'état des lieux et le plan restant sont dans [docs/refonte/](docs/refonte/).
 
@@ -75,6 +115,8 @@ cp frontend/.env.example frontend/.env.local
 
 Les deux fichiers sont commentés ligne par ligne. **Aucune variable n'est obligatoire** : sans configuration, Mew démarre en mode local avec le stockage sur fichier.
 
+> Le fournisseur d'IA, lui, **ne se configure plus ici** : il se choisit dans l'écran Paramètres. Le `.env` reste possible et reste prioritaire, pour qui installe Mew pour d'autres — voir *Configuration avancée* plus bas.
+
 ### Lancer
 
 Deux terminaux :
@@ -97,23 +139,35 @@ Pour vérifier que le serveur répond : http://localhost:5000/api/capacites vous
 
 - **Elles restent chez vous.** Candidatures et historique sont enregistrés dans `backend/data/mew.json`, un fichier que vous pouvez ouvrir, sauvegarder ou supprimer.
 - **Votre CV n'est jamais écrit sur le disque.** Il est lu en mémoire, traité, puis oublié à la fin de la requête.
-- **Les journaux ne contiennent aucune donnée identifiante** : ni nom, ni email, ni contenu de CV.
-- Si vous configurez une clé OpenAI, les textes envoyés au modèle partent évidemment chez OpenAI. C'est le seul cas, et il est limité aux trois tâches de rédaction.
+- **Les journaux ne contiennent aucune donnée identifiante** : ni nom, ni email, ni contenu de CV. Votre clé API n'y figure jamais non plus.
+- **Votre clé API ne repart jamais vers le navigateur.** L'écran Paramètres n'en reçoit qu'une version masquée (`sk-p...4f2a`), juste assez pour reconnaître laquelle est enregistrée.
+- Si vous choisissez un fournisseur en ligne, les textes des tâches de rédaction partent évidemment chez lui. C'est le seul cas où des données sortent de votre machine — et avec un modèle local (Ollama, LM Studio, llama.cpp), ce cas n'existe pas du tout.
+
+Détails, et ce qu'il faut savoir avant d'héberger Mew pour plusieurs personnes : [SECURITY.md](SECURITY.md).
 
 ## Configuration avancée
 
 <details>
-<summary><b>Utiliser un modèle local (Ollama, LM Studio)</b></summary>
+<summary><b>Imposer un fournisseur depuis le <code>.env</code> (installation partagée)</b></summary>
 
-Dans `backend/.env` :
+L'écran Paramètres enregistre votre choix dans `backend/data/config-ia.json`. Mais quelqu'un peut installer Mew **pour d'autres** (serveur partagé, association, centre de formation) et vouloir imposer sa configuration. L'ordre est donc :
+
+1. `backend/.env`, s'il définit `OPENAI_API_KEY` — **prioritaire, toujours**
+2. `backend/data/config-ia.json`, le choix fait dans l'écran Paramètres
+3. rien du tout — et Mew démarre quand même
+
+Quand le `.env` gagne, l'écran Paramètres affiche le choix comme **verrouillé**, au lieu de laisser croire qu'on peut le changer. Pour rendre la main à l'utilisateur : retirez `OPENAI_API_KEY` du `.env` et relancez le serveur.
 
 ```env
-OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=http://localhost:11434/v1   # vide = OpenAI
 AI_MODEL_REDACTION=llama3.1:8b
 AI_MODEL_EXTRACTION=llama3.1:8b
 ```
 
-Aucune clé n'est nécessaire : Mew en envoie une factice, que les serveurs locaux ignorent.
+Cette voie ne parle que le protocole **compatible OpenAI**. Anthropic et Google, qui ont leur propre format d'API, ne sont accessibles que par l'écran Paramètres.
+
+⚠️ Une clé mise dans le `.env` (ou enregistrée depuis l'écran Paramètres) est **partagée par tous les utilisateurs** de cette installation, et c'est vous qui payez. Lisez [SECURITY.md](SECURITY.md) avant.
 </details>
 
 <details>
@@ -198,11 +252,17 @@ frontend/          Next.js 16, React 19, Tailwind 4     -> port 3000
 backend/           Express 5                            -> port 5000
    ├── routes/     entrées HTTP
    ├── services/   orchestration
+   ├── llm/        le choix du fournisseur (catalogue, adaptateurs, réglages)
+   ├── core/       le calcul : scores, parseurs, ROME — zéro réseau
    ├── storage/    fichier local (défaut) ou Supabase
    ├── prompts/    les textes envoyés au modèle
    ├── config/     un seul endroit qui lit la configuration
    └── lib/        utilitaires (journaux, sécurité des URL)
 ```
+
+Le dossier `llm/` est ce qui rend Mew portable. `llm/providers/catalogue.js` est de la **donnée** — ajouter un fournisseur compatible OpenAI, c'est copier une entrée, sans toucher à une ligne de code. `llm/adapters/` ne compte que trois fichiers : `openaiCompatible` (la quasi-totalité des services), `anthropic` et `google`, qui ont leur propre format.
+
+Les sorties structurées passent par des **marqueurs texte découpés en JavaScript** (`SUBJECT:`, une ligne de tirets, le corps), jamais par les *Structured Outputs* d'OpenAI. C'est ce qui permet à un petit modèle local de fonctionner : il ne sait pas produire du JSON contraint, mais il sait suivre une consigne de mise en forme.
 
 **La règle qui guide le découpage** : si deux personnes avec la même information sous les yeux arriveraient forcément au même résultat, c'est du code — pas un appel au modèle.
 
@@ -212,6 +272,10 @@ backend/           Express 5                            -> port 5000
 |---|---|---|
 | GET | `/api/health` | Le serveur répond-il |
 | GET | `/api/capacites` | Ce qui est actif selon votre configuration |
+| GET | `/api/ia/fournisseurs` | Le catalogue : fournisseurs, modèles, tarifs |
+| GET · PUT · DELETE | `/api/ia/config` | Lire (masquée), enregistrer, effacer votre choix |
+| POST | `/api/ia/tester` | Tester une configuration **sans** l'enregistrer |
+| GET · POST | `/api/ia/modeles/:fournisseur` | Demander sa liste de modèles au fournisseur |
 | POST | `/api/solutions/analyse-cv` | Analyse depuis le formulaire |
 | POST | `/api/solutions/analyse-cv-pdf-complete` | Analyse depuis un PDF |
 | POST | `/api/solutions/optimiser-cv-pdf` | Score ATS + optimisation |

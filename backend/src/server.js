@@ -21,6 +21,7 @@ const matcherRoutes = require('./routes/matcher');
 const applicationsRoutes = require('./routes/applications');
 const candidatureSpontaneeRoutes = require('./routes/candidatureSpontanee');
 const historyRoutes = require('./routes/history');
+const iaRoutes = require('./routes/ia');
 
 const log = creer('Mew');
 const app = express();
@@ -38,6 +39,15 @@ app.use(express.json({ limit: '2mb' })); // 2 Mo pour le texte scrape des offres
 // appele : brider un calcul local et gratuit n'aurait aucun sens.
 app.use('/api/solutions', aiRateLimiter, solutionsRoutes);
 app.use('/api/matcher', aiRateLimiter, matcherRoutes);
+
+// Reglages du moteur d'IA : c'est l'utilisateur qui choisit son fournisseur,
+// son modele et apporte sa cle, depuis l'interface.
+// PAS de limiteur global ici, volontairement : lire le catalogue ou
+// enregistrer un choix ne coute rien et n'appelle personne, et brider ces
+// routes empecherait de reparer une configuration au pire moment. Seule
+// /api/ia/tester, qui fait un vrai appel au fournisseur, est limitee — le
+// routeur applique le limiteur lui-meme sur cette route.
+app.use('/api/ia', iaRoutes);
 
 // Les trois routes ci-dessous manipulent des donnees personnelles
 // (candidatures, historique, envoi d'email) : elles passent par le
@@ -131,7 +141,8 @@ function afficherDemarrage() {
     log.info("  Aucun moteur d'IA configure : les analyses, scores et suivis");
     log.info('  fonctionnent normalement (ils sont calcules en local).');
     log.info('  Seule la redaction assistee est indisponible.');
-    log.info('  Pour l\'activer : copie backend/.env.example en backend/.env');
+    log.info('  Pour l\'activer : choisis ton fournisseur et colle ta cle dans');
+    log.info('  les reglages de l\'interface (ou remplis backend/.env).');
   }
 }
 

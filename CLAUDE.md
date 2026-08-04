@@ -26,8 +26,9 @@ Test pratique : *« puis-je écrire un test automatique qui vérifie que la rép
 
 ## Deux invariants à ne jamais casser
 
-1. **Le serveur démarre toujours, même sans aucune clé.** Aucun client externe (OpenAI, Resend, Supabase) n'est instancié au chargement d'un module — seulement à la première utilisation réelle. Une clé absente désactive une fonctionnalité, elle ne fait pas tomber le serveur.
+1. **Le serveur démarre toujours, même sans aucune configuration.** Aucun client externe (fournisseur d'IA, Resend, Supabase) n'est instancié au chargement d'un module — seulement à la première utilisation réelle. Le catalogue et le répartiteur d'adaptateurs sont eux aussi chargés paresseusement, sous `try/catch`. Une clé absente désactive une fonctionnalité, elle ne fait pas tomber le serveur.
 2. **Aucun `fetch` direct dans une page frontend.** Tout passe par `frontend/lib/api/`.
+3. **Une clé API ne quitte jamais le backend** : ni vers le navigateur, ni dans un log, ni dans un message d'erreur, ni dans une URL.
 
 ## Architecture
 
@@ -35,6 +36,8 @@ Test pratique : *« puis-je écrire un test automatique qui vérifie que la rép
 frontend (Next.js 16, port 3000)
   └─ fetch via lib/api/ ──> backend (Express 5, port 5000)
                               ├─ config/     seul endroit qui lit process.env
+                              ├─ llm/        catalogue, adaptateurs, réglages utilisateur
+                              ├─ core/       le calcul — zéro réseau, zéro I/O
                               ├─ storage/    fichier JSON local (défaut) | Supabase (option)
                               ├─ services/   orchestration
                               ├─ prompts/    un fichier par workflow IA
@@ -43,11 +46,12 @@ frontend (Next.js 16, port 3000)
 
 ### Backend (`backend/src/`)
 
-- `server.js` — point d'entrée. 5 mounts : `/api/solutions`, `/api/matcher`, `/api/applications`, `/api/candidature-spontanee`, `/api/historique`, plus `/api/health` et `/api/capacites`. Écoute sur `127.0.0.1` par défaut.
-- `config/index.js` — **seul fichier qui lit `process.env`**. Expose `config.capacites` (ia, envoiEmail, franceTravail, scraping, stockageSupabase) et `config.resume()`.
+- `server.js` — point d'entrée. 6 mounts : `/api/solutions`, `/api/matcher`, `/api/ia`, `/api/applications`, `/api/candidature-spontanee`, `/api/historique`, plus `/api/health` et `/api/capacites`. Écoute sur `127.0.0.1` par défaut.
+- `config/index.js` — **seul fichier qui lit `process.env`**. Expose `config.capacites` (ia, envoiEmail, franceTravail, scraping, stockageSupabase, authentificationVerifiee) et `config.resume()`. Arbitre entre `.env` et le choix de l'utilisateur (voir *Le choix du fournisseur*).
+- `llm/` — le choix du fournisseur et du modèle. Section dédiée plus bas.
 - `storage/` — `index.js` choisit l'adaptateur selon `STORAGE_DRIVER` ; `jsonAdapter.js` (défaut, `backend/data/mew.json`, zéro dépendance, écritures sérialisées) et `supabaseAdapter.js`. Même interface : `applications.create/getByUser/getById/update/delete` et `history.save/list/delete`.
 - `routes/` — un fichier par domaine (solutions, matcher, applications, candidatureSpontanee, history)
-- `services/` — aiService (client OpenAI, modèles désignés par **rôle**), cvService, matcherService, scraperService, jobDiscoveryService, applicationService, candidatureSpontaneeService, emailService, historyService
+- `services/` — aiService (ne parle plus à OpenAI en direct : il lit `config.ia`, demande son adaptateur au répartiteur, traduit un **rôle** en nom de modèle ; signatures publiques inchangées), cvService, matcherService, scraperService, jobDiscoveryService, applicationService, candidatureSpontaneeService, emailService, historyService
 - `prompts/` — un fichier par workflow IA, chacun exporte `buildPrompt(...) => string` ; `jsonSchemas.js` = prompts de conversion JSON (**voué à disparaître**, voir la refonte) ; `helpers.js` = formatage partagé
 - `middleware/` — `uploadPdf.js` (config multer unique, 5 Mo, code d'erreur `FICHIER_NON_PDF`), `rateLimiter.js`
 - `lib/` — `logger.js` (niveaux + masquage des données personnelles), `urlSecurity.js` (anti-SSRF), `supabaseClient.js` (paresseux)
@@ -58,6 +62,8 @@ frontend (Next.js 16, port 3000)
 - `lib/auth.js` — **point d'entrée unique de l'authentification**, deux modes (`local` par défaut, `supabase`). `getUser`, `signIn`, `signUp`, `signOut`, `estModeLocal`. `signOut()` renvoie `false` en mode local (rien à quitter) : les pages s'en servent pour savoir s'il faut rediriger.
 - `lib/supabase.js` — client paresseux + `supabaseConfigured`
 - `lib/api/` — un client par domaine + `config.js` (`API_URL` avec repli sur `localhost:5000`, `lireReponse`, `messageErreurReseau`)
+- `app/parametres/page.js` — l'écran de choix du fournisseur. **L'état vit dans la page, pas dans les composants** : les cinq étapes se répondent (changer de fournisseur invalide la clé, les modèles et le résultat du test). `components/parametres/` n'expose que des champs contrôlés.
+- `lib/api/iaApi.js` — client des routes `/api/ia`
 - `components/cv/`, `components/matcher/`, `components/shared/`
 - `context/ThemeContext.js` — thème clair/sombre (localStorage `mew-theme`)
 
@@ -81,17 +87,58 @@ C'est là que vit la logique du produit. **Zéro réseau, zéro I/O, 100 % testa
 
 ## Ce qu'il reste au LLM
 
-**7 appels possibles dans tout le projet**, tous de la rédaction :
+**5 points d'appel, 6 appels réseau au maximum**, tous de la rédaction :
 
-| Service | Appels | Pour quoi |
-|---|---:|---|
-| `matcherService` | 4 | CV adapté (pipeline 2 étapes), lettre (texte brut), extraction de profil PDF |
-| `cvService` | 2 | réécriture du CV optimisé — le score, lui, est calculé |
-| `candidatureSpontaneeService` | 1 | rédaction de l'email d'approche |
+| Service | Ligne | Appels | Pour quoi |
+|---|---|---:|---|
+| `matcherService` | 140 · 173 · 242 | 4 | CV adapté (`generateThenConvert` = 2 appels), lettre, extraction de profil PDF |
+| `cvService` | 155 | 1 | réécriture du CV optimisé — le score, lui, est calculé |
+| `candidatureSpontaneeService` | 42 | 1 | rédaction de l'email d'approche |
 
-Les modèles sont désignés par **rôle** (`redaction`, `extraction`), jamais par nom dans le code métier. Erreur 429 OpenAI → HTTP 503.
+Les modèles sont désignés par **rôle** (`redaction`, `extraction`), jamais par nom dans le code métier.
 
-`generateThenConvert` fait **deux** appels pour une seule information : chaque usage restant est une dette à rembourser. Format retenu pour les sorties structurées : **marqueurs texte découpés en JS**, pas les Structured Outputs d'OpenAI — pour ne dépendre d'aucun fournisseur.
+`generateThenConvert` fait **deux** appels pour une seule information : chaque usage restant est une dette à rembourser. Format retenu pour les sorties structurées : **marqueurs texte découpés en JS** (`llm/parseurs/`), pas les Structured Outputs d'OpenAI. C'est ce qui rend le projet portable : un petit modèle local ne sait pas produire du JSON contraint, mais il sait suivre « écris `SUBJECT:` puis une ligne de tirets puis le corps ».
+
+## Le choix du fournisseur (`backend/src/llm/`)
+
+**L'utilisateur choisit son fournisseur ET son modèle depuis l'écran Paramètres**, avec sa propre clé. N'importe quel modèle est atteignable : ChatGPT, Claude, Gemini, Kimi, Mistral, un modèle local, une adresse compatible OpenAI quelconque.
+
+| Fichier | Rôle |
+|---|---|
+| `llm/providers/catalogue.js` | **de la donnée, pas du code** : 16 fournisseurs, leurs modèles, tarifs, fenêtres. Gelé en profondeur. |
+| `llm/providers/index.js` | seule porte d'entrée du catalogue. Ne lève **jamais**, quoi qu'on lui passe. |
+| `llm/adapters/index.js` | répartiteur nom → module, chargement **paresseux** (un adaptateur cassé ne doit pas empêcher le serveur de démarrer) |
+| `llm/adapters/{openaiCompatible,anthropic,google}.js` | les 3 seuls protocoles. Anthropic et Google via `fetch` natif, **sans leur SDK**. |
+| `llm/configUtilisateur.js` | lit/écrit `backend/data/config-ia.json`. Écriture atomique, `chmod 0600`, cache mémoire. |
+| `llm/testConnexion.js` | le bouton « Tester » : envoie un vrai mini-prompt et le découpe avec le **vrai** parseur |
+| `llm/parseurs/` | découpage des sorties à marqueurs (`emailSpontane`, `cvOptimise`) |
+| `llm/cout.js` | estimation de coût à partir des tarifs du catalogue |
+
+**Ajouter un fournisseur compatible OpenAI = copier une entrée du catalogue.** Aucun autre fichier à toucher ; `backend/test/catalogue.test.js` vérifie que l'entrée est complète.
+
+### Le contrat des adaptateurs
+
+Deux méthodes, c'est tout : `completer({ baseURL, cleApi, modele, prompt, temperature, maxTokens, jsonMode, timeoutMs })` → `{ texte, usage: { tokensEntree, tokensSortie }, modele }`, et `listerModeles({ baseURL, cleApi, timeoutMs })` → `[{ id, nom }]` ou `null`.
+
+Toute erreur levée porte un `.code` parmi **`CLE_INVALIDE`** (401/403), **`QUOTA_DEPASSE`** (429/402), **`MODELE_INTROUVABLE`** (404), **`TIMEOUT`**, **`RESEAU`** (DNS, connexion refusée — cas fréquent avec Ollama éteint), **`FOURNISSEUR`** (tout le reste). Le `.message` est en **français, compréhensible par quelqu'un qui ne programme pas** : « Ollama ne répond pas sur http://localhost:11434. Vérifie qu'il est lancé. » Ne jamais laisser remonter un message brut de SDK en anglais. `routes/ia.js` traduit ces codes en statuts HTTP.
+
+### Priorité de la configuration
+
+1. `backend/.env` s'il définit `OPENAI_API_KEY` — **gagne toujours** (installation faite pour d'autres ; l'interface affiche alors le choix comme verrouillé)
+2. `backend/data/config-ia.json` — le choix de l'utilisateur
+3. rien — et le serveur démarre quand même
+
+L'arbitrage est dans `config/index.js`, en propriétés **calculées** (`config.ia.cleApi`, `.baseURL`, `.modeles`, `.source`) : l'utilisateur peut changer de fournisseur pendant que le serveur tourne. `routes/ia.js` remet à zéro le client mis en cache par `aiService` après chaque enregistrement.
+
+### Trois règles non négociables sur la clé
+
+1. Elle ne repart **jamais** vers le navigateur. Une seule fonction a le droit de décrire la config vers l'extérieur : `configUtilisateur.lireMasquee()`, qui rend `sk-p...4f2a`.
+2. Elle n'apparaît **jamais** dans un log ni dans un message d'erreur. `routes/ia.js` ne logue jamais le corps des requêtes.
+3. Elle ne transite **jamais** dans une URL — d'où le `POST /api/ia/modeles/:fournisseur` en plus du `GET`.
+
+### Routes
+
+`/api/ia` (monté sans authentification, comme `/api/capacites`) : `GET /fournisseurs`, `GET·PUT·DELETE /config`, `POST /tester` (seule route derrière le limiteur : c'est la seule qui appelle vraiment un fournisseur), `GET·POST /modeles/:fournisseur`.
 
 ## Commandes
 
@@ -108,6 +155,8 @@ Avant chaque commit : le build passe, le lint est à 0 erreur, `npm test` est ve
 ## Variables d'environnement
 
 Aucune n'est obligatoire. Tout est documenté dans `backend/.env.example` et `frontend/.env.example` — **ces deux fichiers font foi** ; toute nouvelle variable doit y être ajoutée en même temps que dans `config/index.js`.
+
+Le fournisseur d'IA n'a normalement **rien à faire dans un `.env`** : il se choisit dans l'écran Paramètres. `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `AI_MODEL_*` restent lus, mais uniquement pour verrouiller une installation faite pour d'autres.
 
 Le `.env` backend est à `backend/.env` (plus dans `src/`), chargé par un chemin absolu calculé depuis `server.js`, sans `override` : une variable passée dans le terminal gagne sur le fichier.
 
