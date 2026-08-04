@@ -121,7 +121,7 @@ Le `.env` backend est à `backend/.env` (plus dans `src/`), chargé par un chemi
 
 ## Pièges connus
 
-- `frontend/components/cv/ResultsDisplay.jsx:42-47` — le repli sur `metier.note_marche` **n'est pas du code mort** : l'historique rejoue des résultats archivés à l'ancien format. Le supprimer afficherait `width: undefined%`.
+- `frontend/components/cv/ResultsDisplay.jsx` (bloc commenté « NE PAS SUPPRIMER LE REPLI SUR `note_marche` ») — le repli sur `metier.note_marche` **n'est pas du code mort** : l'historique rejoue des résultats archivés à l'ancien format. Le supprimer afficherait `width: undefined%`.
 - `jobDiscoveryService.js` — le paramètre `motsCles` de l'API France Travail est un homonyme piégeux, il n'a rien à voir avec les mots-clés générés par le LLM.
 - Sur macOS, le port 5000 est pris par AirPlay → `PORT=5001` dans `backend/.env` et adapter `NEXT_PUBLIC_API_URL`.
 - Puppeteer est une **dépendance optionnelle** (~1,3 Go). Son absence désactive le rendu JavaScript des pages, rien d'autre.

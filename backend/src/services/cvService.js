@@ -1,6 +1,6 @@
 const aiService = require('./aiService');
 const { buildPrompt: buildOptimisePdfPrompt } = require('../prompts/optimiseCvPdf');
-const { cvToJSON } = require('../prompts/jsonSchemas');
+const { parseCvOptimise } = require('../llm/parseurs/cvOptimise');
 
 const { construireProfil } = require('../core/cv/profil');
 const { proposerMetiers } = require('../core/score/metiers');
@@ -141,17 +141,27 @@ class CVService {
       };
     }
 
+    // UN SEUL appel, la ou il y en avait deux.
+    //
+    // Avant : un premier modele ecrivait le CV en texte, un second le
+    // retapait en JSON. Le format du texte est pourtant impose par NOTRE
+    // prompt (prompts/optimiseCvPdf.js) : on payait un modele pour lire une
+    // structure qu'on avait nous-memes dictee, avec le risque qu'il
+    // reformule le contenu au passage. Le decoupage est desormais fait en
+    // JavaScript par llm/parseurs/cvOptimise.js, qui est teste et gratuit.
     const optimPrompt = buildOptimisePdfPrompt(cvText, numPages, posteCible);
-    const cvOptimise = await aiService.generateThenConvert(
-      optimPrompt,
-      cvToJSON('{{GENERATED_TEXT}}'),
-      { role: 'extraction' },
-      { role: 'extraction' }
-    );
+    // Meme role de modele qu'avant (« extraction », rapide et bon marche) :
+    // on retire un appel, on ne change pas la facture de celui qui reste.
+    const texteGenere = await aiService.generate(optimPrompt, { role: 'extraction' });
+    const cvOptimise = parseCvOptimise(texteGenere);
 
     return {
       ...base,
       cvData_optimise: cvOptimise,
+      // Filet de securite : si le decoupage rate une section exotique, le
+      // texte complet reste disponible. Champ optionnel, ignore par les
+      // anciens resultats rejoues depuis l'historique.
+      cv_optimise_texte: texteGenere,
       message: 'CV optimise'
     };
   }

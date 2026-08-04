@@ -45,10 +45,11 @@ export default function LoginPage() {
           <div className="mb-10">
             <Logo size="md" />
             <h1 className="font-display text-3xl font-bold text-text-primary mt-8">
-              Bon retour
+              Connexion
             </h1>
             <p className="text-text-muted mt-2">
-              Connectez-vous pour acceder a vos outils
+              Cette installation de Mew est partagee : le compte sert a retrouver
+              vos candidatures et votre historique.
             </p>
           </div>
 
@@ -63,6 +64,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="vous@exemple.com"
@@ -78,6 +80,7 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Votre mot de passe"
@@ -113,9 +116,14 @@ export default function LoginPage() {
         </div>
         <div className="relative text-center px-12">
           <div className="font-display text-7xl font-bold text-primary/20 mb-6">5</div>
-          <h2 className="font-display text-2xl font-bold text-text-primary mb-3">Outils IA pour l&apos;emploi</h2>
-          <p className="text-text-secondary max-w-xs mx-auto">
-            Analyse de CV, optimisation ATS, matching d&apos;offres, candidatures spontanees et suivi
+          <h2 className="font-display text-2xl font-bold text-text-primary mb-3">Outils pour votre recherche d&apos;emploi</h2>
+          <p className="text-text-secondary max-w-sm mx-auto">
+            Analyse de CV, score ATS explique critere par critere, adaptation a une
+            offre, candidature spontanee et suivi des relances.
+          </p>
+          <p className="text-text-muted text-sm max-w-sm mx-auto mt-4">
+            Mew est un logiciel libre. Vous pouvez aussi l&apos;installer sur votre
+            propre machine : sans compte, et sans que votre CV quitte votre ordinateur.
           </p>
         </div>
       </div>

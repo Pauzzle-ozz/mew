@@ -1,179 +1,132 @@
 /**
- * Client API pour le Matcher d'Offres
- * Centralise tous les appels backend pour le matching candidat-offre
- * Retourne du texte structuré (plus de PDF)
+ * Client API du Matcher d'Offres.
+ * Tout est en mode texte : le backend renvoie du JSON structure, pas de PDF.
+ *
+ * Comme les autres clients de lib/api/, celui-ci passe par lireReponse() et
+ * messageErreurReseau(). Les erreurs levees conservent leur champ `code`
+ * (AUTH_REQUIRED, SCRAPING_FAILED...), sur lequel UrlScraper s'appuie pour
+ * expliquer precisement pourquoi une URL n'a pas pu etre lue.
+ *
+ * Les console.error qui enveloppaient chaque appel ont ete retires : ils
+ * re-levaient l'erreur telle quelle apres l'avoir journalisee, donc ils
+ * n'apportaient rien a l'utilisateur et doublaient chaque message dans la
+ * console. Les appelants affichent deja l'erreur a l'ecran.
  */
 
-import { API_URL as API_BASE_URL } from './config';
+import { API_URL as API_BASE_URL, lireReponse, messageErreurReseau } from './config';
 
 /**
- * Analyser une offre d'emploi et générer les documents (texte)
+ * Envoie la requete et traduit les pannes reseau.
+ * Le fetch est isole dans son propre try : une erreur levee par lireReponse
+ * (message deja lisible, champ `code` renseigne) ne doit pas etre reecrite
+ * en erreur reseau.
+ */
+async function appeler(chemin, options, messageParDefaut) {
+  let reponse;
+  try {
+    reponse = await fetch(`${API_BASE_URL}${chemin}`, options);
+  } catch (erreur) {
+    throw new Error(messageErreurReseau(erreur));
+  }
+  return lireReponse(reponse, messageParDefaut);
+}
+
+const enJson = (corps) => ({
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(corps),
+});
+
+/**
+ * Analyser une offre d'emploi saisie a la main et generer les documents.
  */
 export async function analyzeOffer(offerData, candidateProfile, options = {}) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/matcher/analyser`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        offer: offerData,
-        candidate: candidateProfile,
-        options
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error ||'Erreur lors de l\'analyse de l\'offre');
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/analyser',
+    { method: 'POST', ...enJson({ offer: offerData, candidate: candidateProfile, options }) },
+    "Erreur lors de l'analyse de l'offre"
+  );
 }
 
 /**
- * Scraper une URL d'offre d'emploi
+ * Lire une offre depuis son URL.
  */
 export async function scrapeOfferUrl(url) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/matcher/scraper-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = new Error(data?.error ||'Impossible d\'analyser cette URL');
-      error.code = data?.code ||'UNKNOWN';
-      throw error;
-    }
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur scraping:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/scraper-url',
+    { method: 'POST', ...enJson({ url }) },
+    "Impossible d'analyser cette URL"
+  );
 }
 
 /**
- * Générer les documents à partir du texte brut scrapé (mode URL)
+ * Generer les documents a partir du texte brut recupere sur l'offre.
  */
 export async function analyzeScrapedOffer(rawText, url, candidateProfile, options = {}) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/matcher/analyser-scraper`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rawText,
-        url,
-        candidate: candidateProfile,
-        options
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error ||'Erreur lors de la génération des documents');
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur scraper:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/analyser-scraper',
+    { method: 'POST', ...enJson({ rawText, url, candidate: candidateProfile, options }) },
+    'Erreur lors de la generation des documents'
+  );
 }
 
 /**
- * Mode Rapide : CV PDF + URL de l'offre → texte optimisé
+ * Mode Rapide : CV PDF + URL de l'offre.
  */
 export async function generateComplete(cvFile, offerUrl, options = {}) {
-  try {
-    const formData = new FormData();
-    formData.append('cv', cvFile);
-    formData.append('offerUrl', offerUrl);
-    formData.append('options', JSON.stringify(options));
+  const formData = new FormData();
+  formData.append('cv', cvFile);
+  formData.append('offerUrl', offerUrl);
+  formData.append('options', JSON.stringify(options));
 
-    const response = await fetch(`${API_BASE_URL}/api/matcher/generer-complet`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = new Error(data?.error ||'Erreur lors de la génération des documents');
-      error.code = data?.code ||'UNKNOWN';
-      throw error;
-    }
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur mode rapide:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/generer-complet',
+    { method: 'POST', body: formData },
+    'Erreur lors de la generation des documents'
+  );
 }
 
 /**
- * Extraire le profil candidat depuis un CV PDF
+ * Extraire le profil candidat depuis un CV PDF.
  */
 export async function extractCandidateFromCVFile(cvFile) {
-  try {
-    const formData = new FormData();
-    formData.append('cv', cvFile);
+  const formData = new FormData();
+  formData.append('cv', cvFile);
 
-    const response = await fetch(`${API_BASE_URL}/api/matcher/extraire-candidat-pdf`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error ||'Impossible d\'extraire les données du CV');
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur extraction PDF:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/extraire-candidat-pdf',
+    { method: 'POST', body: formData },
+    "Impossible d'extraire les donnees du CV"
+  );
 }
 
 /**
- * Mode Découverte : analyser le CV pour trouver les offres correspondantes
+ * Mode Decouverte : analyser le CV pour trouver les offres correspondantes.
  */
 export async function discoverJobs(cvFile, sources = [], filters = {}) {
-  try {
-    const formData = new FormData();
-    formData.append('cv', cvFile);
-    if (sources.length > 0) formData.append('sources', JSON.stringify(sources));
-    if (filters.localisation) formData.append('localisation', filters.localisation);
-    if (filters.typeContrat) formData.append('typeContrat', filters.typeContrat);
+  const formData = new FormData();
+  formData.append('cv', cvFile);
+  if (sources.length > 0) formData.append('sources', JSON.stringify(sources));
+  if (filters.localisation) formData.append('localisation', filters.localisation);
+  if (filters.typeContrat) formData.append('typeContrat', filters.typeContrat);
 
-    const response = await fetch(`${API_BASE_URL}/api/matcher/decouvrir-offres`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error ||'Erreur lors de la découverte d\'offres');
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur découverte:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/decouvrir-offres',
+    { method: 'POST', body: formData },
+    "Erreur lors de la decouverte d'offres"
+  );
 }
 
 /**
- * Adaptation rapide : CV PDF + offre structurée → texte optimisé
+ * Adaptation rapide : CV PDF + offre structuree.
  */
 export async function rapidAdaptCV(cvFile, offer) {
-  try {
-    const formData = new FormData();
-    formData.append('cv', cvFile);
-    formData.append('offer', JSON.stringify(offer));
+  const formData = new FormData();
+  formData.append('cv', cvFile);
+  formData.append('offer', JSON.stringify(offer));
 
-    const response = await fetch(`${API_BASE_URL}/api/matcher/adapter-rapide`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(data?.error ||'Erreur lors de l\'adaptation rapide du CV');
-    return data;
-  } catch (error) {
-    console.error('[matcherApi] Erreur adaptation rapide:', error);
-    throw error;
-  }
+  return appeler(
+    '/api/matcher/adapter-rapide',
+    { method: 'POST', body: formData },
+    "Erreur lors de l'adaptation rapide du CV"
+  );
 }
-

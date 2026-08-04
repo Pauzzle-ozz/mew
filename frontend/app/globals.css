@@ -225,7 +225,18 @@ body::before {
   animation: pulse-soft 2s ease-in-out infinite;
 }
 
-/* Stagger delays */
+/* Stagger delays
+   ATTENTION — COLLISION DE NOMS : Tailwind fournit deja des utilitaires
+   `delay-*` qui pilotent transition-delay. Ceux d'ici pilotent animation-delay
+   et, comme ils sont ecrits hors des couches Tailwind, ils GAGNENT sur elles.
+   Consequence : `delay-500` ne peut plus servir a retarder une transition, il
+   retarde une animation. Les usages actuels (app/login/page.js et
+   app/signup/page.js, en `animate-float delay-500`) veulent bien un
+   animation-delay : ils fonctionnent. Si un jour on renomme ces classes en
+   `anim-delay-*` pour lever l'ambiguite, il faudra mettre a jour ces deux
+   fichiers dans le meme commit.
+   Verifie le 4 aout 2026 : les 8 delays et les 8 animations ci-dessus sont
+   tous utilises au moins une fois dans app/ ou components/. Rien a supprimer. */
 .delay-100 { animation-delay: 100ms; }
 .delay-200 { animation-delay: 200ms; }
 .delay-300 { animation-delay: 300ms; }

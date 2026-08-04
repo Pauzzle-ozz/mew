@@ -5,14 +5,28 @@ const candidatureSpontaneeService = require('../services/candidatureSpontaneeSer
 const applicationService = require('../services/applicationService');
 const { aiRateLimiter } = require('../middleware/rateLimiter');
 const { uploadPdf: upload } = require('../middleware/uploadPdf');
+const { auth } = require('../middleware/auth');
+const { repondreErreurIa } = require('./erreursIa');
+
+/**
+ * ========================================
+ * ROUTES CANDIDATURE SPONTANEE
+ * ========================================
+ *
+ * L'authentification est posee route par route, et non a la racine du
+ * routeur, a cause de /envoyer : cette route recoit un formulaire
+ * multipart, et tant que multer n'a pas lu le corps, `req.body` est vide.
+ * En mode local, le middleware n'y trouverait donc aucun userId.
+ * L'identifiant utilise reste `req.userId` dans tous les cas.
+ */
 
 /**
  * Envoyer une candidature spontanee
  * POST /api/candidature-spontanee/envoyer
  */
-router.post('/envoyer', aiRateLimiter, upload.single('cv'), async (req, res) => {
+router.post('/envoyer', aiRateLimiter, upload.single('cv'), auth, async (req, res) => {
   try {
-    const { recipientEmail, targetPosition, company, contactName, userId, candidateName, candidateEmail } = req.body;
+    const { recipientEmail, targetPosition, company, contactName, candidateName, candidateEmail } = req.body;
     const cvFile = req.file;
 
     if (!cvFile) {
@@ -36,7 +50,9 @@ router.post('/envoyer', aiRateLimiter, upload.single('cv'), async (req, res) => 
       targetPosition,
       company: company || '',
       contactName: contactName || '',
-      userId: userId || null,
+      // Sans utilisateur identifie, l'email part quand meme : seul
+      // l'enregistrement dans le suivi de candidatures est saute.
+      userId: req.userId || null,
       // Facultatifs mais recommandes : le nom sert a nommer la piece jointe
       // sans avoir a le deviner, et l'email permet au recruteur de repondre.
       candidateName: candidateName || '',
@@ -48,12 +64,7 @@ router.post('/envoyer', aiRateLimiter, upload.single('cv'), async (req, res) => 
   } catch (error) {
     console.error('[Route CandidatureSpontanee] Erreur:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surcharge. Reessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -66,15 +77,18 @@ router.post('/envoyer', aiRateLimiter, upload.single('cv'), async (req, res) => 
  * Generer un email de relance (sans l'envoyer)
  * POST /api/candidature-spontanee/generer-relance
  */
-router.post('/generer-relance', aiRateLimiter, async (req, res) => {
+router.post('/generer-relance', aiRateLimiter, auth, async (req, res) => {
   try {
-    const { applicationId, userId } = req.body;
+    const { applicationId } = req.body || {};
 
-    if (!applicationId || !userId) {
-      return res.status(400).json({ success: false, error: 'applicationId et userId requis' });
+    if (!req.userId) {
+      return res.status(400).json({ success: false, error: 'Utilisateur non identifie' });
+    }
+    if (!applicationId) {
+      return res.status(400).json({ success: false, error: 'applicationId requis' });
     }
 
-    const app = await applicationService.getById(applicationId, userId);
+    const app = await applicationService.getById(applicationId, req.userId);
 
     if (!app) {
       return res.status(404).json({ success: false, error: 'Candidature introuvable' });
@@ -112,12 +126,7 @@ router.post('/generer-relance', aiRateLimiter, async (req, res) => {
   } catch (error) {
     console.error('[Route Relance] Erreur:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surcharge. Reessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -130,14 +139,15 @@ router.post('/generer-relance', aiRateLimiter, async (req, res) => {
  * Marquer la relance comme envoyee
  * PUT /api/candidature-spontanee/:applicationId/relance-envoyee
  */
-router.put('/:applicationId/relance-envoyee', async (req, res) => {
+router.put('/:applicationId/relance-envoyee', auth, async (req, res) => {
   try {
     const { applicationId } = req.params;
-    const { userId } = req.body;
 
-    if (!userId) return res.status(400).json({ success: false, error: 'userId requis' });
+    if (!req.userId) {
+      return res.status(400).json({ success: false, error: 'Utilisateur non identifie' });
+    }
 
-    const updated = await applicationService.update(applicationId, userId, {
+    const updated = await applicationService.update(applicationId, req.userId, {
       follow_up_sent: true
     });
 

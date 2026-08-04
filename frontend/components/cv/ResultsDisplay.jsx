@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import AvertissementLecturePdf from '@/components/shared/AvertissementLecturePdf'
 
 function ScoreBar({ label, score, color }) {
   // Un score peut valoir null : c'est le cas de « Marche emploi » tant
@@ -49,6 +50,12 @@ function ScoreCircle({ score, size = 'md' }) {
 function MetierCard({ metier, colors }) {
   const [expanded, setExpanded] = useState(false)
 
+  // NE PAS SUPPRIMER LE REPLI SUR `note_marche` : ce n'est pas du code mort.
+  // Le backend actuel renvoie un objet `scores` detaille, mais les analyses
+  // archivees dans tool_usage_history datent d'avant ce changement et ne
+  // contiennent qu'un seul nombre, `note_marche`. Quand l'utilisateur rejoue
+  // une de ces analyses depuis l'historique, c'est cette ligne qui evite un
+  // ecran vide. Elle doit rester tant que d'anciens enregistrements existent.
   const scores = metier.scores || {
     adequation_profil: metier.note_marche || 0,
     marche_emploi: metier.note_marche || 0,
@@ -184,7 +191,13 @@ function MetierCard({ metier, colors }) {
 
 const CATEGORIES = ['Correspond a mes competences', 'Je pourrais tenter']
 
-export default function ResultsDisplay({ result }) {
+/**
+ * @param {object}   result   resultat de l'analyse (recent ou rejoue depuis l'historique)
+ * @param {Function} onReset  optionnel : remise a zero. Sans lui, le bouton
+ *                            « Faire une nouvelle analyse » du bas n'est pas
+ *                            affiche — la page qui n'en veut pas ne le passe pas.
+ */
+export default function ResultsDisplay({ result, onReset }) {
   const groupedMetiers = useMemo(() => {
     const groups = {
       'Correspond a mes competences': [],
@@ -240,6 +253,10 @@ export default function ResultsDisplay({ result }) {
   return (
     <div className="space-y-6">
 
+      {/* Fiabilite de la lecture du PDF, affichee AVANT les resultats : la
+          personne doit savoir avec quelle marge d'erreur les lire. */}
+      <AvertissementLecturePdf confiance={result.profil?.confiance_lecture} />
+
       {/* Header resultats */}
       <div className="bg-gradient-to-r from-primary to-secondary text-primary-foreground rounded-xl p-6">
         <h2 className="text-2xl font-bold mb-2">Analyse terminee !</h2>
@@ -282,7 +299,10 @@ export default function ResultsDisplay({ result }) {
 
             {/* Liste des metiers */}
             <div className="space-y-3 mt-4">
-              {metiers
+              {/* Copie avant tri : .sort() modifie le tableau sur place, et
+                  celui-ci vient d'un useMemo. Trier directement dedans revient
+                  a modifier une valeur memorisee pendant le rendu. */}
+              {[...metiers]
                 .sort((a, b) => (a.priorite || 99) - (b.priorite || 99))
                 .map((metier, index) => (
                   <MetierCard key={index} metier={metier} colors={config} />
@@ -312,15 +332,22 @@ export default function ResultsDisplay({ result }) {
         </div>
       )}
 
-      {/* Bouton nouvelle analyse */}
-      <div className="text-center pt-4">
-        <button
-          onClick={() => window.location.reload()}
-          className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover font-medium transition-colors cursor-pointer"
-        >
-          Faire une nouvelle analyse
-        </button>
-      </div>
+      {/* Bouton nouvelle analyse.
+          Avant : window.location.reload(). Recharger toute la page pour vider
+          un resultat, c'est refaire le trajet reseau, re-verifier la session et
+          re-telecharger l'application entiere — plusieurs secondes d'ecran
+          blanc pour une remise a zero que React fait instantanement. */}
+      {onReset && (
+        <div className="text-center pt-4">
+          <button
+            type="button"
+            onClick={onReset}
+            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            Faire une nouvelle analyse
+          </button>
+        </div>
+      )}
     </div>
   )
 }

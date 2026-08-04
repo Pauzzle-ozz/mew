@@ -1,0 +1,104 @@
+# Integration continue de Mew.
+#
+# Ce fichier decrit ce que GitHub doit executer tout seul a chaque fois que du
+# code arrive sur `main` ou qu'une pull request est ouverte. Le but est simple :
+# personne ne doit pouvoir casser le projet sans que ca se voie.
+#
+# Si vous debutez : un "workflow" est une liste de taches (`jobs`), chaque tache
+# tourne sur une machine neuve chez GitHub, et chaque tache est une suite
+# d'etapes (`steps`) executees de haut en bas. Si une etape echoue, la tache
+# s'arrete et la pastille de la pull request devient rouge.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Si on pousse deux fois de suite sur la meme branche, on annule la CI
+# precedente : elle teste du code deja perime et occupe une machine pour rien.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Les tests du backend (node --test, aucune dependance de test a installer)
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Tests backend
+    runs-on: ubuntu-latest
+    # Toutes les commandes de cette tache partent du dossier backend/,
+    # ca evite de repeter `cd backend` a chaque etape.
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      # Puppeteer telecharge son propre Chromium a l'installation : 1,3 Go a
+      # chaque execution de la CI. On le desactive. C'est sans risque ici :
+      # puppeteer est en `optionalDependencies` et le code ne le charge qu'au
+      # moment d'un scraping reel, jamais au demarrage ni pendant les tests.
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+
+    steps:
+      - name: Recuperer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node 22
+        uses: actions/setup-node@v4
+        with:
+          # Le projet exige Node >= 20.9 (voir .nvmrc, qui contient 22).
+          node-version: 22
+          # Garde le cache npm d'une execution a l'autre : l'installation
+          # passe de ~1 min a quelques secondes.
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Installer les dependances
+        # `npm ci` installe exactement ce qui est dans package-lock.json, sans
+        # jamais le modifier. C'est la commande faite pour les machines.
+        run: npm ci
+
+      - name: Lancer les tests
+        # Aucune cle API n'est necessaire : Mew doit fonctionner sans .env.
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # 2. Le frontend : lint puis build. Les deux dans la meme tache parce qu'ils
+  #    partagent la meme installation de dependances (~360 paquets).
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Lint et build frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Recuperer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Verifier le style du code
+        run: npm run lint
+
+      - name: Construire l'application
+        # Verifie : aucune variable NEXT_PUBLIC_* n'est necessaire pour que le
+        # build passe. `lib/api/config.js` a une valeur par defaut et
+        # `lib/supabase.js` ne cree son client qu'a la premiere utilisation.
+        # Si un jour une variable devient obligatoire au chargement d'un
+        # module, le build cassera ici : il faudra alors la declarer en `env:`
+        # avec une valeur factice.
+        run: npm run build

@@ -8,6 +8,9 @@ const scraperService = require('../services/scraperService');
 const jobDiscoveryService = require('../services/jobDiscoveryService');
 const { uploadPdf: upload } = require('../middleware/uploadPdf');
 const pdfCache = require('../lib/cache/pdfCache');
+// Traduit les pannes du moteur d'IA (cle refusee, quota, surcharge, moteur
+// local eteint) en messages francais actionnables plutot qu'en « Erreur serveur ».
+const { repondreErreurIa } = require('./erreursIa');
 
 /**
  * ========================================
@@ -71,12 +74,7 @@ router.post('/analyser', async (req, res) => {
   } catch (error) {
     console.error('❌ [MATCHER] Erreur:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -208,12 +206,7 @@ router.post('/analyser-scraper', async (req, res) => {
   } catch (error) {
     console.error('❌ [MATCHER] Erreur scraper:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -301,9 +294,7 @@ router.post('/generer-complet', upload.single('cv'), async (req, res) => {
     if (error.code === 'SCRAPING_FAILED') {
       return res.status(422).json({ success: false, error: error.message, code: 'SCRAPING_FAILED' });
     }
-    if (error.status === 429) {
-      return res.status(503).json({ success: false, error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.' });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -377,9 +368,7 @@ router.post('/adapter-rapide', upload.single('cv'), async (req, res) => {
   } catch (error) {
     console.error('❌ [MATCHER] Erreur adaptation rapide:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({ success: false, error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.' });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -439,9 +428,7 @@ router.post('/decouvrir-offres', upload.single('cv'), async (req, res) => {
   } catch (error) {
     console.error('❌ [MATCHER] Erreur découverte:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({ success: false, error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.' });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -490,9 +477,7 @@ router.post('/extraire-candidat-pdf', upload.single('cv'), async (req, res) => {
   } catch (error) {
     console.error('❌ [MATCHER] Erreur extraction PDF:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({ success: false, error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.' });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,

@@ -61,9 +61,10 @@ export default function SignupPage() {
         </div>
         <div className="relative text-center px-12">
           <div className="font-display text-7xl font-bold text-secondary/20 mb-6">5</div>
-          <h2 className="font-display text-2xl font-bold text-text-primary mb-3">Outils IA pour l&apos;emploi</h2>
-          <p className="text-text-secondary max-w-xs mx-auto">
-            De l&apos;analyse de votre CV au suivi de vos candidatures — gratuit, sans limites
+          <h2 className="font-display text-2xl font-bold text-text-primary mb-3">Outils pour votre recherche d&apos;emploi</h2>
+          <p className="text-text-secondary max-w-sm mx-auto">
+            De l&apos;analyse de votre CV au suivi de vos relances. Logiciel libre,
+            que vous pouvez aussi installer chez vous sans creer le moindre compte.
           </p>
           <div className="flex flex-wrap justify-center gap-2 mt-6">
             {['Analyseur CV', 'Optimiseur ATS', 'Matcher d\'offres', 'Candidature spontanee', 'Suivi'].map(tool => (
@@ -84,7 +85,8 @@ export default function SignupPage() {
               Creer un compte
             </h1>
             <p className="text-text-muted mt-2">
-              Acces gratuit a tous les outils, sans carte bancaire
+              Sur cette installation partagee, le compte sert uniquement a separer
+              vos candidatures de celles des autres personnes qui l&apos;utilisent.
             </p>
           </div>
 
@@ -100,6 +102,7 @@ export default function SignupPage() {
                 id="email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="vous@exemple.com"
@@ -116,11 +119,19 @@ export default function SignupPage() {
                 type="password"
                 required
                 minLength={6}
+                autoComplete="new-password"
+                aria-describedby="aide-mot-de-passe"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="6 caracteres minimum"
                 className="w-full px-4 py-3 bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
+              {/* aria-describedby ci-dessus : la contrainte est ainsi lue par
+                  le lecteur d'ecran au moment ou le champ prend le focus, et
+                  pas seulement au moment ou le formulaire refuse la saisie. */}
+              <p id="aide-mot-de-passe" className="mt-2 text-xs text-text-muted">
+                6 caracteres minimum.
+              </p>
             </div>
 
             <Button

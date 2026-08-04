@@ -1,92 +1,86 @@
 'use client';
 
+import { useId } from 'react';
+
 /**
- * Formulaire de saisie d'une offre d'emploi
- * Utilisé dans le Matcher d'Offres
+ * Saisie manuelle d'une offre d'emploi.
+ *
+ * DEUX CORRECTIONS FAITES ICI
+ * 1) Les couleurs etaient ecrites en dur pour un fond sombre (bg-gray-800,
+ *    text-white...). En theme clair, du texte blanc atterrissait sur le fond
+ *    creme : illisible. Tout passe desormais par les variables du theme.
+ * 2) Aucun <label> n'etait relie a son champ. Un lecteur d'ecran annoncait
+ *    donc « zone de saisie » sans jamais dire laquelle. htmlFor + id reglent
+ *    le probleme, et un clic sur l'etiquette place maintenant le curseur dans
+ *    le champ (ce qui aide tout le monde, pas seulement les lecteurs d'ecran).
  */
 export default function OfferForm({ offerData, setOfferData }) {
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setOfferData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  // Un prefixe unique par instance : deux formulaires dans la meme page ne
+  // peuvent pas se voler leurs identifiants.
+  const prefixe = `offre-${useId()}`;
+
+  const surChangement = (evenement) => {
+    const { name, value } = evenement.target;
+    setOfferData((precedent) => ({ ...precedent, [name]: value }));
   };
 
   return (
     <div className="space-y-6">
-      {/* En-tête */}
       <div className="flex items-center gap-3">
-        <div className="text-4xl">📋</div>
+        <span className="text-4xl" aria-hidden="true">
+          📋
+        </span>
         <div>
-          <h2 className="text-2xl font-bold text-white">Détails de l'offre</h2>
-          <p className="text-gray-400 text-sm">Copiez-collez l'offre d'emploi qui vous intéresse</p>
+          <h2 className="font-display text-2xl font-bold text-text-primary">Details de l&apos;offre</h2>
+          <p className="text-sm text-text-secondary">Copie-colle l&apos;offre d&apos;emploi qui t&apos;interesse</p>
         </div>
       </div>
 
-      {/* Formulaire */}
       <div className="space-y-4">
-        {/* Titre du poste */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Titre du poste <span className="text-pink-500">*</span>
-          </label>
-          <input
-            type="text"
-            name="title"
-            value={offerData.title}
-            onChange={handleChange}
-            placeholder="Ex: Développeur Full Stack"
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-            required
-          />
-        </div>
+        <Champ
+          id={`${prefixe}-title`}
+          nom="title"
+          libelle="Titre du poste"
+          obligatoire
+          valeur={offerData.title}
+          onChange={surChangement}
+          placeholder="Ex : Developpeur Full Stack"
+        />
 
-        {/* Entreprise */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Entreprise <span className="text-pink-500">*</span>
-          </label>
-          <input
-            type="text"
-            name="company"
-            value={offerData.company}
-            onChange={handleChange}
-            placeholder="Ex: TechCorp SAS"
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-            required
-          />
-        </div>
+        <Champ
+          id={`${prefixe}-company`}
+          nom="company"
+          libelle="Entreprise"
+          obligatoire
+          valeur={offerData.company}
+          onChange={surChangement}
+          placeholder="Ex : TechCorp SAS"
+        />
 
-        {/* Localisation & Type de contrat */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Localisation <span className="text-pink-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="location"
-              value={offerData.location}
-              onChange={handleChange}
-              placeholder="Ex: Paris, France"
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-              required
-            />
-          </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Champ
+            id={`${prefixe}-location`}
+            nom="location"
+            libelle="Localisation"
+            obligatoire
+            valeur={offerData.location}
+            onChange={surChangement}
+            placeholder="Ex : Paris, France"
+          />
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Type de contrat <span className="text-pink-500">*</span>
-            </label>
+            <Etiquette htmlFor={`${prefixe}-contract`} obligatoire>
+              Type de contrat
+            </Etiquette>
             <select
+              id={`${prefixe}-contract`}
               name="contract_type"
               value={offerData.contract_type}
-              onChange={handleChange}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
+              onChange={surChangement}
+              className={CLASSES_CHAMP}
               required
             >
-              <option value="">Sélectionner...</option>
+              <option value="">Selectionner...</option>
               <option value="CDI">CDI</option>
               <option value="CDD">CDD</option>
               <option value="Freelance">Freelance</option>
@@ -96,40 +90,84 @@ export default function OfferForm({ offerData, setOfferData }) {
           </div>
         </div>
 
-        {/* Salaire (optionnel) */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Salaire <span className="text-gray-500 text-xs">(optionnel)</span>
-          </label>
-          <input
-            type="text"
-            name="salary"
-            value={offerData.salary}
-            onChange={handleChange}
-            placeholder="Ex: 45-55k€ annuel"
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-          />
-        </div>
+        <Champ
+          id={`${prefixe}-salary`}
+          nom="salary"
+          libelle="Salaire"
+          mention="(optionnel)"
+          valeur={offerData.salary}
+          onChange={surChangement}
+          placeholder="Ex : 45-55k euros annuel"
+        />
 
-        {/* Description complète */}
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Description complète de l'offre <span className="text-pink-500">*</span>
-          </label>
+          <Etiquette htmlFor={`${prefixe}-description`} obligatoire>
+            Description complete de l&apos;offre
+          </Etiquette>
           <textarea
+            id={`${prefixe}-description`}
             name="description"
             value={offerData.description}
-            onChange={handleChange}
-            placeholder="Collez ici la description complète de l'offre d'emploi (missions, profil recherché, compétences requises, avantages...)"
+            onChange={surChangement}
+            placeholder="Colle ici la description complete de l'offre (missions, profil recherche, competences requises, avantages...)"
             rows={12}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors resize-y"
+            aria-describedby={`${prefixe}-description-aide`}
+            className={`${CLASSES_CHAMP} resize-y`}
             required
           />
-          <p className="text-xs text-gray-500 mt-2">
-            💡 Plus la description est détaillée, meilleur sera le matching
+          <p id={`${prefixe}-description-aide`} className="mt-2 text-xs text-text-muted">
+            Plus la description est detaillee, plus le score de correspondance est fiable : il se calcule sur les
+            mots de l&apos;offre.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Briques communes ──────────────────────────────────────────────── */
+
+// Une seule definition de l'apparence des champs. Avant, ces classes etaient
+// recopiees a l'identique sept fois : la moindre correction en oubliait une.
+const CLASSES_CHAMP =
+  'w-full rounded-lg border border-border bg-surface px-4 py-3 text-text-primary placeholder-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary';
+
+function Etiquette({ htmlFor, obligatoire = false, mention, children }) {
+  return (
+    <label htmlFor={htmlFor} className="mb-2 block text-sm font-medium text-text-secondary">
+      {children}
+      {/* L'asterisque seule ne dit rien a un lecteur d'ecran : on lui ajoute
+          le mot « obligatoire », visible uniquement pour lui. */}
+      {obligatoire && (
+        <>
+          {' '}
+          <span className="text-primary" aria-hidden="true">
+            *
+          </span>
+          <span className="sr-only">(obligatoire)</span>
+        </>
+      )}
+      {mention && <span className="ml-1 text-xs text-text-muted">{mention}</span>}
+    </label>
+  );
+}
+
+function Champ({ id, nom, libelle, valeur, onChange, placeholder, obligatoire = false, mention, type = 'text' }) {
+  return (
+    <div>
+      <Etiquette htmlFor={id} obligatoire={obligatoire} mention={mention}>
+        {libelle}
+      </Etiquette>
+      <input
+        id={id}
+        type={type}
+        name={nom}
+        value={valeur}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={CLASSES_CHAMP}
+        required={obligatoire}
+      />
     </div>
   );
 }

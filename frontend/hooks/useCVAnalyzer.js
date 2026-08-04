@@ -2,8 +2,14 @@ import { useState } from 'react';
 import { cvApi } from '@/lib/api/cvApi';
 
 /**
- * Hook personnalisé pour l'analyse de CV
- * Gère l'état et la logique d'analyse (formulaire + PDF)
+ * Hook d'analyse de CV : etat + appels au backend (formulaire ou PDF).
+ *
+ * Il expose a la fois `setResult` et `reset` :
+ *   - `setResult` sert a INJECTER un resultat venu d'ailleurs, typiquement une
+ *     analyse archivee que l'utilisateur rejoue depuis l'historique ;
+ *   - `reset` sert a repartir de zero (bouton « Nouvelle analyse »). Il efface
+ *     aussi l'erreur, ce qu'un simple `setResult(null)` ne faisait pas : un
+ *     message d'echec restait affiche au-dessus d'un formulaire vierge.
  */
 export function useCVAnalyzer() {
   const [processing, setProcessing] = useState(false);
@@ -66,7 +72,7 @@ export function useCVAnalyzer() {
   };
 
   /**
-   * Réinitialiser les résultats
+   * Tout remettre a zero : resultat, erreur et indicateur de traitement.
    */
   const reset = () => {
     setResult(null);
@@ -79,6 +85,7 @@ export function useCVAnalyzer() {
     result,
     setResult,
     error,
+    setError,
     analyzeWithForm,
     analyzeWithPDF,
     reset

@@ -1,0 +1,28 @@
+# Configuration du choix propose quand on clique sur « New issue ».
+#
+# `blank_issues_enabled: true` garde la possibilite d'ouvrir une issue vide :
+# une suggestion ou une question ne rentre pas dans le gabarit de bug, et
+# forcer un gabarit inadapte decourage plus de contributions qu'il n'en trie.
+blank_issues_enabled: true
+
+# Liens affiches a cote des gabarits, pour rediriger avant d'ouvrir une issue.
+contact_links:
+  - name: Faille de securite
+    url: https://github.com/Pauzzle-ozz/mew/blob/main/SECURITY.md
+    about: >-
+      Une faille ne se signale jamais dans une issue publique : elle serait
+      visible par tout le monde avant d'etre corrigee. Suivez la procedure
+      decrite dans SECURITY.md.
+
+  - name: Installation et premiers pas
+    url: https://github.com/Pauzzle-ozz/mew/blob/main/README.md
+    about: >-
+      Le serveur ne demarre pas, une commande echoue a l'installation ?
+      Le README couvre le cas le plus frequent : Mew fonctionne sans aucune
+      cle API, et le backend annonce au demarrage ce qui est actif.
+
+  - name: Contribuer au projet
+    url: https://github.com/Pauzzle-ozz/mew/blob/main/CONTRIBUTING.md
+    about: >-
+      Conventions, ou se trouve quoi, et une liste de premieres contributions
+      bien delimitees si vous cherchez par ou commencer.

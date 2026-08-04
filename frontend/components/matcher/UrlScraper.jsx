@@ -1,167 +1,207 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { scrapeOfferUrl } from '@/lib/api/matcherApi';
 
 /**
- * Composant de scraping d'URL d'offre d'emploi
- * 5 états : idle, loading, success, partial, error
+ * Lecture automatique d'une offre depuis son URL.
+ * Cinq etats : idle, loading, success, partial, error.
  *
- * @param {Function} onScrapingComplete - Callback avec les données extraites
+ * DEUX CORRECTIONS FAITES ICI
+ * 1) Les couleurs etaient ecrites en dur pour un fond sombre (bg-gray-800,
+ *    text-white, text-gray-400). En theme clair, le texte blanc se retrouvait
+ *    sur le fond creme #FFFBF5 : illisible. Tout passe par les variables du
+ *    theme, donc les deux themes sont corrects par construction.
+ * 2) Le fichier contenait des sequences « è » ecrites en clair dans du
+ *    texte JSX. JSX ne les interprete pas : l'utilisateur lisait vraiment
+ *    « succès » a l'ecran. Les textes sont reecrits sans accents, comme
+ *    le reste des chaines JSX du projet.
+ *
+ * @param {Function} onScrapingComplete appele avec les donnees extraites
  */
 export default function UrlScraper({ onScrapingComplete }) {
   const [url, setUrl] = useState('');
-  const [status, setStatus] = useState('idle'); // idle | loading | success | partial | error
-  const [errorMessage, setErrorMessage] = useState('');
+  const [statut, setStatut] = useState('idle'); // idle | loading | success | partial | error
+  const [messageErreur, setMessageErreur] = useState('');
 
-  const handleScrape = async () => {
+  // useId : plusieurs UrlScraper peuvent coexister dans une page sans que les
+  // deux <label htmlFor> pointent vers le meme champ.
+  const idChamp = `url-offre-${useId()}`;
+  const idAide = `${idChamp}-aide`;
+
+  const analyser = async () => {
     if (!url.trim()) return;
 
-    setStatus('loading');
-    setErrorMessage('');
+    setStatut('loading');
+    setMessageErreur('');
 
     try {
-      const response = await scrapeOfferUrl(url.trim());
+      const reponse = await scrapeOfferUrl(url.trim());
 
-      // Vérifier si le parsing basique a trouvé des champs
-      const basic = response.data?.basicOffer || {};
-      const hasBasicData = basic.title || basic.company || basic.location;
+      // Le parsing basique a-t-il rempli au moins un champ utile ?
+      const basique = reponse.data?.basicOffer || {};
+      const aDesDonnees = basique.title || basique.company || basique.location;
 
-      setStatus(hasBasicData ? 'success' : 'partial');
+      setStatut(aDesDonnees ? 'success' : 'partial');
+      onScrapingComplete(reponse.data);
+    } catch (erreur) {
+      setStatut('error');
 
-      // Envoyer rawText + basicOffer au parent
-      onScrapingComplete(response.data);
-
-    } catch (error) {
-      setStatus('error');
-
-      if (error.code === 'AUTH_REQUIRED') {
-        setErrorMessage(error.message);
-      } else if (error.code === 'SCRAPING_FAILED') {
-        setErrorMessage('Impossible de lire cette page. Utilisez la saisie manuelle.');
+      if (erreur.code === 'AUTH_REQUIRED') {
+        setMessageErreur(erreur.message);
+      } else if (erreur.code === 'SCRAPING_FAILED') {
+        setMessageErreur('Impossible de lire cette page. Utilise la saisie manuelle.');
       } else {
-        setErrorMessage(error.message || 'Une erreur est survenue lors de l\'analyse.');
+        setMessageErreur(erreur.message || 'Une erreur est survenue pendant l\'analyse.');
       }
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleScrape();
+  const surTouche = (evenement) => {
+    if (evenement.key === 'Enter') {
+      evenement.preventDefault();
+      analyser();
     }
   };
 
-  const handleReset = () => {
+  const reinitialiser = () => {
     setUrl('');
-    setStatus('idle');
-    setErrorMessage('');
+    setStatut('idle');
+    setMessageErreur('');
   };
+
+  const enCours = statut === 'loading';
 
   return (
     <div className="space-y-6">
-      {/* En-t\u00eate */}
       <div className="flex items-center gap-3">
-        <div className="text-4xl">🔗</div>
+        <span className="text-4xl" aria-hidden="true">
+          🔗
+        </span>
         <div>
-          <h2 className="text-2xl font-bold text-white">Coller un lien</h2>
-          <p className="text-gray-400 text-sm">
-            Collez l'URL d'une offre d'emploi et les champs se rempliront automatiquement
+          <h2 className="font-display text-2xl font-bold text-text-primary">Coller un lien</h2>
+          <p className="text-sm text-text-secondary">
+            Colle l&apos;URL d&apos;une offre d&apos;emploi : les champs se remplissent tout seuls.
           </p>
         </div>
       </div>
 
-      {/* Input URL + Bouton */}
-      <div className="flex gap-3">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="https://www.welcometothejungle.com/fr/companies/..."
-          disabled={status === 'loading'}
-          className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={handleScrape}
-          disabled={status === 'loading' || !url.trim()}
-          className="px-6 py-3 bg-pink-600 hover:bg-pink-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors whitespace-nowrap"
-        >
-          {status === 'loading' ? 'Analyse...' : 'Analyser l\'offre'}
-        </button>
+      <div>
+        <label htmlFor={idChamp} className="mb-2 block text-sm font-medium text-text-secondary">
+          Adresse de l&apos;offre
+        </label>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            id={idChamp}
+            type="url"
+            value={url}
+            onChange={(evenement) => setUrl(evenement.target.value)}
+            onKeyDown={surTouche}
+            placeholder="https://www.welcometothejungle.com/fr/companies/..."
+            disabled={enCours}
+            aria-describedby={idAide}
+            className="flex-1 rounded-lg border border-border bg-surface px-4 py-3 text-text-primary placeholder-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={analyser}
+            disabled={enCours || !url.trim()}
+            className="cursor-pointer whitespace-nowrap rounded-lg bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-border disabled:text-text-muted"
+          >
+            {enCours ? 'Analyse...' : 'Analyser l\'offre'}
+          </button>
+        </div>
       </div>
 
-      {/* \u00c9tat : Loading */}
-      {status === 'loading' && (
-        <div className="flex items-center gap-3 p-4 bg-gray-800/50 border border-gray-700 rounded-lg">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-pink-500" />
-          <div>
-            <p className="text-white font-medium">Analyse de l'offre en cours...</p>
-            <p className="text-xs text-gray-400 mt-1">Cela peut prendre environ 10 secondes</p>
+      {/* role="status" + aria-live : le resultat du scraping arrive plusieurs
+          secondes apres le clic. Sans annonce, une personne qui n'a pas les
+          yeux sur l'ecran ne sait jamais que l'analyse est terminee. */}
+      <div role="status" aria-live="polite">
+        {enCours && (
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-elevated p-4">
+            <div
+              className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-medium text-text-primary">Analyse de l&apos;offre en cours...</p>
+              <p className="mt-1 text-xs text-text-muted">Cela prend une dizaine de secondes.</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* \u00c9tat : Success */}
-      {status === 'success' && (
-        <div className="flex items-center gap-3 p-4 bg-green-900/20 border border-green-600/30 rounded-lg">
-          <span className="text-xl">✅</span>
-          <div className="flex-1">
-            <p className="text-green-400 font-medium">Offre extraite avec succ\u00e8s !</p>
-            <p className="text-xs text-gray-400 mt-1">V\u00e9rifiez les informations ci-dessous et compl\u00e9tez si besoin</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            Nouvelle URL
-          </button>
-        </div>
-      )}
+        {statut === 'success' && (
+          <EtatScraping
+            ton="success"
+            emoji="✅"
+            titre="Offre extraite avec succes !"
+            aide="Verifie les informations ci-dessous et complete si besoin."
+            libelleAction="Nouvelle URL"
+            onAction={reinitialiser}
+          />
+        )}
 
-      {/* \u00c9tat : Partial */}
-      {status === 'partial' && (
-        <div className="flex items-center gap-3 p-4 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
-          <span className="text-xl">⚠️</span>
-          <div className="flex-1">
-            <p className="text-yellow-400 font-medium">Extraction partielle</p>
-            <p className="text-xs text-gray-400 mt-1">Certains champs n'ont pas pu \u00eatre extraits. Compl\u00e9tez les champs manquants manuellement.</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            Nouvelle URL
-          </button>
-        </div>
-      )}
+        {statut === 'partial' && (
+          <EtatScraping
+            ton="warning"
+            emoji="⚠️"
+            titre="Extraction partielle"
+            aide="Certains champs n'ont pas pu etre extraits. Complete-les a la main."
+            libelleAction="Nouvelle URL"
+            onAction={reinitialiser}
+          />
+        )}
 
-      {/* \u00c9tat : Error */}
-      {status === 'error' && (
-        <div className="flex items-center gap-3 p-4 bg-red-900/20 border border-red-600/30 rounded-lg">
-          <span className="text-xl">❌</span>
-          <div className="flex-1">
-            <p className="text-red-400 font-medium">{errorMessage}</p>
-            <p className="text-xs text-gray-400 mt-1">Utilisez l'onglet "Saisie manuelle" pour remplir les champs vous-m\u00eame.</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            R\u00e9essayer
-          </button>
-        </div>
-      )}
-
-      {/* Sites support\u00e9s */}
-      <div className="text-xs text-gray-500">
-        <p>Sites support\u00e9s : Indeed, Welcome to the Jungle, HelloWork, Apec, P\u00f4le Emploi et la plupart des sites d'offres d'emploi.</p>
-        <p className="mt-1">LinkedIn et Glassdoor ne sont pas support\u00e9s (authentification requise).</p>
+        {statut === 'error' && (
+          <EtatScraping
+            ton="error"
+            emoji="❌"
+            titre={messageErreur}
+            aide="Passe par l'onglet Formulaire pour remplir les champs toi-meme."
+            libelleAction="Reessayer"
+            onAction={reinitialiser}
+          />
+        )}
       </div>
+
+      <div id={idAide} className="text-xs text-text-muted">
+        <p>
+          Sites lisibles : Indeed, Welcome to the Jungle, HelloWork, Apec, France Travail et la plupart des sites
+          d&apos;offres d&apos;emploi.
+        </p>
+        <p className="mt-1">LinkedIn et Glassdoor ne le sont pas : ils exigent une authentification.</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Les quatre etats de fin partageaient la meme structure a trois mots pres.
+ * Un seul composant, un seul endroit ou corriger un probleme de contraste.
+ */
+function EtatScraping({ ton, emoji, titre, aide, libelleAction, onAction }) {
+  const tons = {
+    success: 'border-success/25 bg-success/8 text-success',
+    warning: 'border-warning/25 bg-warning/8 text-warning',
+    error: 'border-error/25 bg-error/8 text-error',
+  };
+
+  return (
+    <div className={`flex items-center gap-3 rounded-lg border p-4 ${tons[ton]}`}>
+      <span className="text-xl" aria-hidden="true">
+        {emoji}
+      </span>
+      <div className="flex-1">
+        <p className="font-medium">{titre}</p>
+        <p className="mt-1 text-xs text-text-muted">{aide}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onAction}
+        className="cursor-pointer text-sm text-text-muted transition-colors hover:text-text-primary"
+      >
+        {libelleAction}
+      </button>
     </div>
   );
 }

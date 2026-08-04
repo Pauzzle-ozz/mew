@@ -15,6 +15,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const config = require('./config');
 const { creer } = require('./lib/logger');
 const { aiRateLimiter } = require('./middleware/rateLimiter');
+const { auth } = require('./middleware/auth');
 const solutionsRoutes = require('./routes/solutions');
 const matcherRoutes = require('./routes/matcher');
 const applicationsRoutes = require('./routes/applications');
@@ -37,9 +38,17 @@ app.use(express.json({ limit: '2mb' })); // 2 Mo pour le texte scrape des offres
 // appele : brider un calcul local et gratuit n'aurait aucun sens.
 app.use('/api/solutions', aiRateLimiter, solutionsRoutes);
 app.use('/api/matcher', aiRateLimiter, matcherRoutes);
-app.use('/api/applications', applicationsRoutes);
+
+// Les trois routes ci-dessous manipulent des donnees personnelles
+// (candidatures, historique, envoi d'email) : elles passent par le
+// middleware d'authentification, qui pose req.userId.
+// AUTH_MODE=local (defaut) fait confiance au navigateur ; AUTH_MODE=supabase
+// exige un jeton signe. Voir middleware/auth.js et SECURITY.md.
+app.use('/api/applications', auth, applicationsRoutes);
+app.use('/api/historique', auth, historyRoutes);
+// candidature-spontanee applique `auth` route par route : /envoyer recoit un
+// formulaire multipart, dont le corps n'est lisible qu'apres multer.
 app.use('/api/candidature-spontanee', candidatureSpontaneeRoutes);
-app.use('/api/historique', historyRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Backend Mew operationnel', status: 'OK' });
@@ -62,7 +71,10 @@ app.get('/api/capacites', (req, res) => {
       envoiEmail: config.capacites.envoiEmail,
       franceTravail: config.capacites.franceTravail,
       scraping: config.capacites.scraping,
-      stockage: config.capacites.stockageSupabase ? 'supabase' : 'local'
+      stockage: config.capacites.stockageSupabase ? 'supabase' : 'local',
+      // Le frontend peut ainsi savoir s'il doit envoyer un jeton
+      // (mode supabase) ou seulement un identifiant (mode local).
+      authentification: config.authentification.mode
     }
   });
 });
@@ -100,6 +112,19 @@ function afficherDemarrage() {
   const url = `http://${config.serveur.host}:${config.serveur.port}`;
   log.info(`Serveur demarre sur ${url}`);
   config.resume().forEach((ligne) => log.info(`  ${ligne}`));
+
+  // Le cas dangereux : un serveur joignable depuis le reseau alors qu'il
+  // fait encore confiance a l'identifiant envoye par le navigateur. Il faut
+  // le dire fort, c'est exactement la situation ou les donnees fuitent.
+  if (config.authentification.mode === 'local' && config.serveur.host !== '127.0.0.1'
+      && config.serveur.host !== 'localhost') {
+    log.info('');
+    log.warn(`  ATTENTION : le serveur ecoute sur ${config.serveur.host} et n'a AUCUNE`);
+    log.warn('  authentification (AUTH_MODE=local). Toute personne qui atteint ce port');
+    log.warn("  peut lire et modifier les candidatures de n'importe qui, en devinant");
+    log.warn('  simplement son identifiant. Mets AUTH_MODE=supabase, ou reviens a');
+    log.warn('  HOST=127.0.0.1.');
+  }
 
   if (!config.capacites.ia) {
     log.info('');

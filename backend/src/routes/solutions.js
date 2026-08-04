@@ -5,6 +5,9 @@ const router = express.Router();
 // Import des services
 const cvService = require('../services/cvService');
 const { uploadPdf: upload } = require('../middleware/uploadPdf');
+// Traduit les pannes du moteur d'IA (cle refusee, quota, surcharge, moteur
+// local eteint) en messages francais actionnables plutot qu'en « Erreur serveur ».
+const { repondreErreurIa } = require('./erreursIa');
 
 // ========================================
 // ROUTES ANALYSEUR CV
@@ -35,12 +38,7 @@ router.post('/analyse-cv', async (req, res) => {
   } catch (error) {
     console.error('❌ Erreur analyse CV:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -60,11 +58,12 @@ router.post('/analyse-cv-pdf-complete', upload.single('cv'), async (req, res) =>
       });
     }
 
-    const { userId } = req.body;
     const pdfData = await pdf(req.file.buffer);
 
-    // Appel au service
-    const result = await cvService.analyzePDF(pdfData.text, pdfData.numpages, userId);
+    // Le userId envoye par le client n'est PLUS transmis : l'analyse
+    // n'enregistre rien, et un identifiant venu du navigateur ne prouve pas
+    // qui parle. C'est /api/historique, authentifie, qui sauvegarde.
+    const result = await cvService.analyzePDF(pdfData.text, pdfData.numpages, null);
 
     res.json({
       success: true,
@@ -74,12 +73,7 @@ router.post('/analyse-cv-pdf-complete', upload.single('cv'), async (req, res) =>
   } catch (error) {
     console.error('❌ Erreur analyse PDF complète:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,
@@ -103,7 +97,9 @@ router.post('/optimiser-cv-pdf', upload.single('cv'), async (req, res) => {
       });
     }
 
-    const { userId, posteCible } = req.body;
+    // Meme raison qu'au-dessus : on ne recupere que le poste vise, pas
+    // l'identifiant. L'optimisation n'ecrit rien dans le stockage.
+    const { posteCible } = req.body;
 
     console.log('📄 [OPTIMISEUR-PDF] Début optimisation PDF...');
 
@@ -113,7 +109,7 @@ router.post('/optimiser-cv-pdf', upload.single('cv'), async (req, res) => {
     console.log('📝 [OPTIMISEUR-PDF] Texte extrait, longueur:', pdfData.text.length);
 
     // Appel au service
-    const result = await cvService.optimizeCVPdf(pdfData.text, pdfData.numpages, userId, posteCible);
+    const result = await cvService.optimizeCVPdf(pdfData.text, pdfData.numpages, null, posteCible);
 
     console.log('✅ [OPTIMISEUR-PDF] CV optimisé avec succès');
 
@@ -125,12 +121,7 @@ router.post('/optimiser-cv-pdf', upload.single('cv'), async (req, res) => {
   } catch (error) {
     console.error('❌ [OPTIMISEUR-PDF] Erreur:', error.message);
 
-    if (error.status === 429) {
-      return res.status(503).json({
-        success: false,
-        error: 'Service IA temporairement surchargé. Réessayez dans quelques instants.'
-      });
-    }
+    if (repondreErreurIa(res, error)) return;
 
     res.status(500).json({
       success: false,

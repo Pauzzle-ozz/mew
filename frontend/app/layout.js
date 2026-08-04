@@ -15,13 +15,22 @@ const outfit = Outfit({
   display: "swap",
 });
 
+// Le titre et la description sont ce qu'on lit dans l'onglet du navigateur et
+// dans un lien partage : ils doivent decrire le projet tel qu'il est, pas tel
+// qu'une page de vente le presenterait. Mew tourne sur la machine de la
+// personne, sans compte et sans abonnement — c'est ca, l'information utile.
+//
+// Le champ `keywords` a ete retire : les moteurs de recherche l'ignorent
+// depuis des annees, il ne servait qu'a se donner l'illusion d'un referencement.
 export const metadata = {
-  title: "Mew — L'IA qui vous propulse",
-  description: "Des outils IA pour chaque etape de votre recherche d'emploi : analyse de CV, optimisation, matching d'offres et candidatures spontanees.",
-  keywords: "IA, intelligence artificielle, CV, recherche emploi, candidature, offres d'emploi",
+  title: "Mew — des outils de recherche d'emploi qui tournent chez vous",
+  description:
+    "Analysez votre CV, optimisez-le pour les logiciels de tri, adaptez-le a une offre et suivez vos candidatures. Logiciel libre, installe sur votre machine : votre CV ne part sur aucun serveur, il n'y a pas de compte a creer et une cle IA n'est pas obligatoire.",
 };
 
-// Static theme restoration script — no user input, safe to inline
+// Script constant, sans aucune donnee utilisateur : rien a injecter ici.
+// Il doit s'executer AVANT le premier rendu, sinon la page s'affiche une
+// fraction de seconde en theme clair avant de basculer en sombre.
 const themeScript = `
 (function(){
   try {

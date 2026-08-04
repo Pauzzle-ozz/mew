@@ -30,21 +30,34 @@ export function messageErreurReseau(erreur) {
 
 /**
  * Lit la reponse du backend et leve une erreur parlante si besoin.
- * Centralise aussi la protection du parsing : trois clients sur cinq
- * appelaient `.json()` sans filet et affichaient « Unexpected token '<' »
- * a l'utilisateur des que le serveur repondait une page HTML d'erreur.
+ * Centralise aussi la protection du parsing : les clients appelaient
+ * `.json()` sans filet et affichaient « Unexpected token '<' » a
+ * l'utilisateur des que le serveur repondait une page HTML d'erreur.
+ *
+ * L'erreur levee porte deux champs en plus du message :
+ *   - `code`   le code metier renvoye par le backend (`AUTH_REQUIRED`,
+ *              `SCRAPING_FAILED`...). UrlScraper s'en sert pour distinguer
+ *              « cette offre demande une connexion » de « le scraping a
+ *              echoue ». Sans lui, ces deux cas donneraient le meme message.
+ *   - `status` le code HTTP, utile pour differencier 404 et panne reelle.
  */
 export async function lireReponse(response, messageParDefaut) {
   if (!response.ok) {
     const corps = await response.json().catch(() => ({}));
 
+    let message;
     if (response.status === 401) {
-      throw new Error(corps.error || "Cle API refusee. Verifie OPENAI_API_KEY dans backend/.env.");
+      message = corps.error || "Cle API refusee. Verifie OPENAI_API_KEY dans backend/.env.";
+    } else if (response.status === 503) {
+      message = corps.error || 'Le service IA est momentanement surcharge. Reessaie dans un instant.';
+    } else {
+      message = corps.error || messageParDefaut;
     }
-    if (response.status === 503) {
-      throw new Error(corps.error || 'Le service IA est momentanement surcharge. Reessaie dans un instant.');
-    }
-    throw new Error(corps.error || messageParDefaut);
+
+    const erreur = new Error(message);
+    erreur.code = corps.code || 'UNKNOWN';
+    erreur.status = response.status;
+    throw erreur;
   }
 
   return response.json().catch(() => {

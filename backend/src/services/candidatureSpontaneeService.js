@@ -50,7 +50,11 @@ class CandidatureSpontaneeService {
     // On prefere TOUJOURS le nom saisi par l'utilisateur a celui devine par
     // le modele : beaucoup de CV commencent par l'intitule du poste en
     // capitales, ce qui donnait des pieces jointes « CV_Infirmier_Diplome.pdf ».
-    const nomRetenu = candidateName || emailJSON.candidate_name || '';
+    // Restait ici un `emailJSON.candidate_name` herite du temps ou un second
+    // appel au modele renvoyait du JSON. Cette variable n'existe plus : des
+    // que le nom n'etait pas saisi, l'envoi echouait sur un ReferenceError
+    // au lieu de partir avec une piece jointe nommee « CV.pdf ».
+    const nomRetenu = candidateName || '';
     const cvFilename = nomRetenu
       ? `CV_${nomRetenu.trim().replace(/\s+/g, '_')}.pdf`
       : 'CV.pdf';

@@ -24,6 +24,8 @@ cd backend  && npm test        # doit passer
 
 Et démarrez le serveur au moins une fois **sans fichier `.env`** : le projet doit toujours fonctionner sans configuration.
 
+Ces trois commandes sont exactement ce que GitHub relance tout seul sur votre pull request (`.github/workflows/ci.yml`). Les lancer avant d'ouvrir la PR vous évite un aller-retour. Si la CI est rouge et que tout passe chez vous, vérifiez votre version de Node : la CI utilise Node 22, comme le `.nvmrc`.
+
 ## La règle la plus importante du projet
 
 > **Si deux personnes différentes, avec la même information sous les yeux, arriveraient forcément au même résultat, alors c'est du code — pas un appel au modèle de langage.**

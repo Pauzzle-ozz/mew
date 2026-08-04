@@ -7,15 +7,20 @@ import Button from './Button';
 import ThemeToggle from './ThemeToggle';
 import { estModeLocal } from '@/lib/auth';
 
-// En mode local il n'y a ni compte ni session : proposer « Quitter » ou
-// « Connexion » n'aurait aucun sens.
+// En mode local il n'y a ni compte ni session : proposer « Quitter »
+// n'aurait aucun sens.
+//
+// Il y avait ici une prop `showAuth` qui affichait deux boutons
+// « Connexion / Commencer ». Aucun appelant ne la passait : elle restait a
+// false partout, donc ces ~20 lignes de JSX n'ont jamais ete rendues. Elles
+// sont supprimees. Si un jour une page publique en a besoin, /login et
+// /signup existent toujours.
 const afficherAuth = !estModeLocal;
 
 export default function Header({
   breadcrumbs = [],
   user = null,
   onLogout,
-  showAuth = false,
   actions = null,
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -50,17 +55,6 @@ export default function Header({
           {actions}
           <ThemeToggle />
 
-          {afficherAuth && showAuth && !user && (
-            <div className="hidden sm:flex items-center gap-2">
-              <Link href="/login">
-                <Button variant="ghost" size="sm">Connexion</Button>
-              </Link>
-              <Link href="/signup">
-                <Button variant="primary" size="sm">Commencer</Button>
-              </Link>
-            </div>
-          )}
-
           {user && (
             <div className="hidden sm:flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
@@ -80,7 +74,8 @@ export default function Header({
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="sm:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-elevated transition-colors cursor-pointer"
-            aria-label="Menu"
+            aria-label={mobileOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+            aria-expanded={mobileOpen}
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {mobileOpen ? (
@@ -116,16 +111,6 @@ export default function Header({
                     Deconnexion
                   </button>
                 )}
-              </div>
-            )}
-            {afficherAuth && showAuth && !user && (
-              <div className="pt-2 border-t border-border flex gap-2">
-                <Link href="/login" className="flex-1" onClick={() => setMobileOpen(false)}>
-                  <Button variant="outline" size="sm" className="w-full">Connexion</Button>
-                </Link>
-                <Link href="/signup" className="flex-1" onClick={() => setMobileOpen(false)}>
-                  <Button variant="primary" size="sm" className="w-full">Commencer</Button>
-                </Link>
               </div>
             )}
           </div>

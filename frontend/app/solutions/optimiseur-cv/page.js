@@ -1,16 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
-import { validatePDF } from '@/lib/utils/fileHelpers'
-import { signOut } from '@/lib/auth'
 import ErrorMessage from '@/components/shared/ErrorMessage'
 import Header from '@/components/shared/Header'
 import Button from '@/components/shared/Button'
 import CatLoadingAnimation from '@/components/shared/CatLoadingAnimation'
 import ToolHistory from '@/components/shared/ToolHistory'
-import Logo from '@/components/shared/Logo'
+import LoadingScreen from '@/components/shared/LoadingScreen'
+import CopyButton from '@/components/shared/CopyButton'
+import PdfDropzone from '@/components/shared/PdfDropzone'
+import ScoreDetail from '@/components/shared/ScoreDetail'
+import AvertissementLecturePdf from '@/components/shared/AvertissementLecturePdf'
 import { saveHistoryEntry } from '@/lib/api/historyApi'
 import { cvApi } from '@/lib/api/cvApi'
 
@@ -46,36 +47,17 @@ function ATSScore({ score }) {
   const label = score >= 75 ? 'Excellent' : score >= 50 ? 'Bon' : 'A ameliorer'
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 100 60" className="w-36 h-24">
+      {/* role="img" + aria-label : le <text> dans un SVG n'est pas lu de facon
+          fiable par tous les lecteurs d'ecran. On donne la phrase complete. */}
+      <svg viewBox="0 0 100 60" className="w-36 h-24" role="img" aria-label={`Score ATS : ${score} sur 100 — ${label}`}>
         <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="var(--border)" strokeWidth="8" strokeLinecap="round" />
         <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
           strokeDasharray={`${score * 1.257} 200`} style={{ transition: 'stroke-dasharray 1s ease' }} />
         <text x="50" y="50" textAnchor="middle" fill={color} fontSize="20" fontWeight="bold" fontFamily="var(--font-syne)">{score}</text>
       </svg>
-      <div className="text-sm font-bold mt-1" style={{ color }}>{label}</div>
-      <div className="text-xs text-text-muted">Score ATS /100</div>
+      <div className="text-sm font-bold mt-1" style={{ color }} aria-hidden="true">{label}</div>
+      <div className="text-xs text-text-muted" aria-hidden="true">Score ATS /100</div>
     </div>
-  )
-}
-
-/* ─── Copy button ─── */
-function CopyButton({ text, label }) {
-  const [copied, setCopied] = useState(false)
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      const ta = document.createElement('textarea'); ta.value = text
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
-    }
-    setCopied(true); setTimeout(() => setCopied(false), 1500)
-  }
-  return (
-    <button onClick={handleCopy} className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-      copied ? 'bg-success/10 text-success' : 'bg-primary-light text-primary hover:bg-primary/15'
-    }`}>
-      {copied ? '\u2713 Copie !' : `Copier ${label || ''}`}
-    </button>
   )
 }
 
@@ -86,7 +68,7 @@ function OptimizedSection({ title, optimizedText }) {
     <div className="bg-surface rounded-2xl border border-border/60 p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-bold text-text-primary text-sm">{title}</h3>
-        <CopyButton text={optimizedText} />
+        <CopyButton texte={optimizedText} label={`Copier ${title.toLowerCase()}`} />
       </div>
       <div className="p-3 bg-success/5 border border-success/10 rounded-xl">
         <p className="text-sm text-text-secondary whitespace-pre-line leading-relaxed">{optimizedText}</p>
@@ -121,8 +103,7 @@ function formatFormations(formations) {
 
 /* ─── Main page ─── */
 export default function OptimiseurCVPage() {
-  const { user, loading } = useAuth()
-  const router = useRouter()
+  const { user, loading, logout } = useAuth()
 
   const [processing, setProcessing] = useState(false)
   const [step, setStep] = useState(1)
@@ -130,61 +111,63 @@ export default function OptimiseurCVPage() {
   const [posteCible, setPosteCible] = useState('')
   const [localError, setLocalError] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
-  const [optimResult, setOptimResult] = useState(null)
-  const [cvDataOptimized, setCvDataOptimized] = useState(null)
 
-  const handleLogout = async () => { if (await signOut()) router.push('/login') }
+  // On garde la reponse du backend telle quelle, au lieu d'en recopier trois
+  // champs dans trois etats separes : le jour ou le backend en ajoute un
+  // (c'est ce qui vient de se passer avec score_detail), il n'y a rien a
+  // rebrancher. Les champs absents des resultats archives valent simplement
+  // undefined, et chaque bloc d'affichage teste leur presence.
+  const [resultat, setResultat] = useState(null)
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0]; if (!file) return
+  const cvOptimise = resultat?.cvData_optimise
+
+  // PdfDropzone valide le fichier et affiche lui-meme le refus.
+  const handleFichier = (fichier) => {
     setLocalError(null)
-    try { validatePDF(file); setCvFile(file) } catch (err) { setLocalError(err.message); setCvFile(null) }
-  }
-
-  const handleDrop = (e) => {
-    e.preventDefault(); setIsDragging(false)
-    const file = e.dataTransfer.files[0]; if (!file) return
-    setLocalError(null)
-    try { validatePDF(file); setCvFile(file) } catch (err) { setLocalError(err.message); setCvFile(null) }
-  }
-
-  const goToStep2 = (data) => {
-    setOptimResult({ score_ats: data.score_ats, points_forts: data.points_forts, ameliorations: data.ameliorations })
-    setCvDataOptimized(data.cvData_optimise)
-    setProcessing(false); setStep(2)
-    saveHistoryEntry({
-      userId: user.id, toolType: 'optimiseur-cv',
-      title: `Optimisation CV - ${data.cvData_optimise?.prenom || ''} ${data.cvData_optimise?.nom || ''}`.trim(),
-      inputSummary: { poste_cible: posteCible || data.cvData_optimise?.titre_poste, methode: 'upload' },
-      resultSummary: { score_ats: data.score_ats, fullResult: data }
-    }).catch(() => {})
+    setCvFile(fichier)
   }
 
   const handlePdfOptimization = async (e) => {
     e.preventDefault(); setLocalError(null)
-    if (!cvFile) { setLocalError('Veuillez selectionner un fichier CV'); return }
+    if (!cvFile) { setLocalError('Choisis d\'abord un CV au format PDF.'); return }
     setProcessing(true)
     try {
-      const data = await cvApi.optimizeCVPDF(cvFile, user.id, posteCible)
-      if (data.success) goToStep2(data.data)
-      else throw new Error(data.error || 'Erreur lors de l\'optimisation')
-    } catch (err) { setProcessing(false); setLocalError(err.message) }
+      const reponse = await cvApi.optimizeCVPDF(cvFile, user.id, posteCible)
+      if (!reponse.success) throw new Error(reponse.error || 'Erreur lors de l\'optimisation')
+
+      const data = reponse.data
+      setResultat(data)
+      setProcessing(false)
+      setStep(2)
+
+      const contact = data.profil_extrait?.contact || {}
+      const identite = `${data.cvData_optimise?.prenom || contact.prenom || ''} ${data.cvData_optimise?.nom || contact.nom || ''}`.trim()
+
+      saveHistoryEntry({
+        userId: user.id, toolType: 'optimiseur-cv',
+        title: identite ? `Optimisation CV - ${identite}` : 'Optimisation CV',
+        inputSummary: { poste_cible: posteCible || data.cvData_optimise?.titre_poste, methode: 'upload' },
+        resultSummary: { score_ats: data.score_ats, fullResult: data }
+      }).catch(() => {})
+    } catch (err) {
+      setProcessing(false)
+      setLocalError(err.message)
+    }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4">
-        <Logo size="md" link={false} />
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+  const recommencer = () => {
+    setStep(1)
+    setCvFile(null)
+    setResultat(null)
+    setLocalError(null)
   }
+
+  if (loading) return <LoadingScreen message="Chargement de ton espace" />
 
   return (
     <div className="min-h-screen bg-background">
       <Header
-        user={user} onLogout={handleLogout}
+        user={user} onLogout={logout}
         breadcrumbs={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Optimiseur CV' }]}
         actions={
           <button onClick={() => setShowHistory(true)} className="px-3 py-1.5 text-xs font-semibold rounded-full bg-primary-light text-primary hover:bg-primary/15 transition-colors cursor-pointer">
@@ -199,8 +182,7 @@ export default function OptimiseurCVPage() {
             onLoad={(entry) => {
               const full = entry.result_summary?.fullResult
               if (full) {
-                setOptimResult({ score_ats: full.score_ats, points_forts: full.points_forts, ameliorations: full.ameliorations })
-                setCvDataOptimized(full.cvData_optimise); setStep(2); setShowHistory(false)
+                setResultat(full); setStep(2); setShowHistory(false)
               }
             }}
           />
@@ -226,10 +208,17 @@ export default function OptimiseurCVPage() {
 
                 {/* Target position */}
                 <div className="bg-surface rounded-2xl border border-primary/20 p-5 mb-6">
-                  <h3 className="font-display text-sm font-bold text-primary mb-1">Poste cible (optionnel mais recommande)</h3>
-                  <p className="text-xs text-text-muted mb-3">L&apos;IA adaptera les mots-cles et le resume pour ce poste.</p>
+                  <label htmlFor="poste-cible" className="font-display text-sm font-bold text-primary block">
+                    Poste cible (optionnel mais recommande)
+                  </label>
+                  <p id="poste-cible-aide" className="text-xs text-text-muted mt-1 mb-3">
+                    L&apos;IA adaptera les mots-cles et le resume pour ce poste. Sans poste cible, le critere
+                    « mots-cles de l&apos;offre » ne peut pas etre mesure : il sort du score au lieu de te penaliser.
+                  </p>
                   <input
+                    id="poste-cible"
                     type="text"
+                    aria-describedby="poste-cible-aide"
                     placeholder="Ex: Developpeur Full Stack React / Chef de projet digital"
                     value={posteCible}
                     onChange={e => setPosteCible(e.target.value)}
@@ -237,43 +226,21 @@ export default function OptimiseurCVPage() {
                   />
                 </div>
 
+                {/* ErrorMessage monte lui-meme sa region d'alerte en
+                    permanence : ne pas l'envelopper dans un second
+                    role="alert", les regions imbriquees se neutralisent. */}
                 <ErrorMessage message={localError} onClose={() => setLocalError(null)} />
 
                 {/* Upload zone */}
                 <form onSubmit={handlePdfOptimization}>
-                  <div
-                    onDrop={handleDrop}
-                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onClick={() => document.getElementById('cv-upload').click()}
-                    className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all mb-6 ${
-                      isDragging ? 'border-primary bg-primary-light scale-[1.01]' :
-                      cvFile ? 'border-success/50 bg-success/5' : 'border-border hover:border-primary/40 hover:bg-primary-light'
-                    }`}
-                  >
-                    <input id="cv-upload" type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
-                    {cvFile ? (
-                      <div className="space-y-2">
-                        <div className="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center mx-auto">
-                          <svg className="w-6 h-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <p className="font-semibold text-text-primary">{cvFile.name}</p>
-                        <p className="text-xs text-text-muted">{(cvFile.size / 1024).toFixed(0)} Ko — Cliquer pour changer</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="w-12 h-12 rounded-xl bg-primary-light flex items-center justify-center mx-auto">
-                          <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                          </svg>
-                        </div>
-                        <p className="font-display font-bold text-text-primary">Glissez votre CV PDF ici</p>
-                        <p className="text-sm text-text-muted">ou cliquez pour selectionner — Max 2 Mo</p>
-                      </div>
-                    )}
-                  </div>
+                  <PdfDropzone
+                    fichier={cvFile}
+                    onFichier={handleFichier}
+                    tailleMaxMo={5}
+                    label="Depose ton CV"
+                    description="PDF, 5 Mo max — une seule colonne de preference, c'est ce que lisent le mieux les logiciels de recrutement"
+                    className="mb-6"
+                  />
 
                   <Button type="submit" variant="primary" size="lg" disabled={!cvFile} className="w-full">
                     Optimiser mon CV avec l&apos;IA
@@ -284,92 +251,134 @@ export default function OptimiseurCVPage() {
           </div>
         )}
 
-        {/* ── STEP 2: Results ── */}
-        {step === 2 && optimResult && cvDataOptimized && (
+        {/* ── STEP 2: Results ──
+            Condition sur `resultat` seulement : en mode degrade il n'y a PAS de
+            CV reecrit, mais il y a un score, son detail et les corrections a
+            faire. Exiger le CV reecrit ici affichait un ecran vide alors que
+            l'essentiel etait disponible. */}
+        {step === 2 && resultat && (
           <div className="space-y-6 animate-fade-in">
             <div>
               <h1 className="font-display text-2xl font-bold text-text-primary mb-1">Resultats de l&apos;optimisation</h1>
-              <p className="text-text-muted">Copiez chaque section optimisee dans votre editeur de CV.</p>
+              <p className="text-text-muted">
+                {cvOptimise
+                  ? 'Copiez chaque section optimisee dans votre editeur de CV.'
+                  : 'Voici votre score detaille et ce qu\'il faut corriger.'}
+              </p>
             </div>
+
+            {/* Fiabilite de la lecture du PDF : a lire avant le score, puisque
+                c'est elle qui dit avec quelle marge d'erreur l'interpreter. */}
+            <AvertissementLecturePdf confiance={resultat.profil_extrait?.confiance} />
+
+            {/* Mode degrade : pas de cle API, donc pas de reecriture. Le reste
+                fonctionne — on le dit sans en faire un drame. */}
+            {resultat.degraded && (
+              <div className="rounded-2xl border border-info/30 bg-info/8 p-5">
+                <h2 className="text-sm font-bold text-info">La reecriture automatique n&apos;est pas activee</h2>
+                <p className="mt-1.5 text-sm text-text-secondary">
+                  Aucune cle API n&apos;est configuree sur cette installation, donc l&apos;IA n&apos;a pas
+                  reecrit votre CV. Tout le reste est bien la : le score, le detail de son calcul et la liste
+                  des corrections a apporter. Ce sont des corrections que vous pouvez faire vous-meme, dans
+                  l&apos;ordre indique ci-dessous.
+                </p>
+                <p className="mt-1.5 text-xs text-text-muted">
+                  Pour activer la reecriture : ajoutez une cle dans le fichier <code>backend/src/.env</code>
+                  {' '}(voir <code>backend/.env.example</code>).
+                </p>
+              </div>
+            )}
 
             {/* Score + insights */}
             <div className="bg-surface rounded-2xl border border-border/60 p-6">
               <div className="flex flex-col md:flex-row gap-6 items-start">
-                {optimResult.score_ats != null && (
+                {resultat.score_ats != null && (
                   <div className="flex-shrink-0">
-                    <ATSScore score={optimResult.score_ats} />
+                    <ATSScore score={resultat.score_ats} />
                   </div>
                 )}
                 <div className="flex-1 grid md:grid-cols-2 gap-4">
-                  {optimResult.points_forts?.length > 0 && (
+                  {resultat.points_forts?.length > 0 && (
                     <div className="bg-success/5 border border-success/10 rounded-xl p-4">
-                      <div className="font-display font-bold text-success text-sm mb-2">Points forts</div>
+                      <h2 className="font-display font-bold text-success text-sm mb-2">Points forts</h2>
                       <ul className="space-y-1.5">
-                        {optimResult.points_forts.map((p, i) => (
+                        {resultat.points_forts.map((p, i) => (
                           <li key={i} className="text-xs text-text-secondary flex gap-2">
-                            <span className="text-success shrink-0">{'\u2713'}</span><span>{p}</span>
+                            <span className="text-success shrink-0" aria-hidden="true">{'\u2713'}</span><span>{p}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
-                  {optimResult.ameliorations?.length > 0 && (
+                  {resultat.ameliorations?.length > 0 && (
                     <div className="bg-primary-light border border-primary/10 rounded-xl p-4">
-                      <div className="font-display font-bold text-primary text-sm mb-2">Ameliorations</div>
-                      <ul className="space-y-1.5">
-                        {optimResult.ameliorations.map((a, i) => (
+                      <h2 className="font-display font-bold text-primary text-sm mb-1">Ameliorations</h2>
+                      {/* Le backend a deja classe cette liste : la correction la
+                          plus rentable en premier (ajouter un telephone : dix
+                          secondes) avant la plus couteuse (reecrire toutes ses
+                          puces : une heure). On l'affiche dans cet ordre exact,
+                          surtout on ne la retrie pas. */}
+                      <p className="text-[11px] text-text-muted mb-2">Par ordre de priorite : commencez par la premiere.</p>
+                      <ol className="space-y-1.5">
+                        {resultat.ameliorations.map((a, i) => (
                           <li key={i} className="text-xs text-text-secondary flex gap-2">
-                            <span className="text-primary shrink-0">+</span><span>{a}</span>
+                            <span className="text-primary shrink-0 font-semibold tabular-nums">{i + 1}.</span><span>{a}</span>
                           </li>
                         ))}
-                      </ul>
+                      </ol>
                     </div>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* Detail du calcul, sous la jauge. Absent des resultats archives :
+                le composant ne rend alors rien du tout. */}
+            <ScoreDetail detail={resultat.score_detail} />
 
             {/* Optimized sections */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="font-display text-lg font-bold text-text-primary">Texte optimise par section</h2>
-                <CopyButton
-                  text={[
-                    cvDataOptimized.titre_poste && `Titre: ${cvDataOptimized.titre_poste}`,
-                    cvDataOptimized.resume && `\nResume:\n${cvDataOptimized.resume}`,
-                    cvDataOptimized.experiences?.length && `\nExperiences:\n${formatExperiences(cvDataOptimized.experiences)}`,
-                    cvDataOptimized.formations?.length && `\nFormations:\n${formatFormations(cvDataOptimized.formations)}`,
-                    cvDataOptimized.competences_techniques && `\nCompetences techniques:\n${cvDataOptimized.competences_techniques}`,
-                    cvDataOptimized.competences_soft && `\nSoft skills:\n${cvDataOptimized.competences_soft}`,
-                    cvDataOptimized.langues && `\nLangues:\n${cvDataOptimized.langues}`,
-                  ].filter(Boolean).join('\n')}
-                  label="tout"
-                />
-              </div>
-
-              {cvDataOptimized.titre_poste && (
-                <div className="bg-surface rounded-2xl border border-border/60 p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-display font-bold text-text-primary text-sm">Titre du poste</h3>
-                    <CopyButton text={cvDataOptimized.titre_poste} />
-                  </div>
-                  <div className="p-3 bg-success/5 border border-success/10 rounded-xl">
-                    <p className="text-sm text-text-secondary font-medium">{cvDataOptimized.titre_poste}</p>
-                  </div>
+            {cvOptimise && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-display text-lg font-bold text-text-primary">Texte optimise par section</h2>
+                  <CopyButton
+                    texte={[
+                      cvOptimise.titre_poste && `Titre: ${cvOptimise.titre_poste}`,
+                      cvOptimise.resume && `\nResume:\n${cvOptimise.resume}`,
+                      cvOptimise.experiences?.length && `\nExperiences:\n${formatExperiences(cvOptimise.experiences)}`,
+                      cvOptimise.formations?.length && `\nFormations:\n${formatFormations(cvOptimise.formations)}`,
+                      cvOptimise.competences_techniques && `\nCompetences techniques:\n${cvOptimise.competences_techniques}`,
+                      cvOptimise.competences_soft && `\nSoft skills:\n${cvOptimise.competences_soft}`,
+                      cvOptimise.langues && `\nLangues:\n${cvOptimise.langues}`,
+                    ].filter(Boolean).join('\n')}
+                    label="Copier tout le CV"
+                  />
                 </div>
-              )}
 
-              <OptimizedSection title="Resume professionnel" optimizedText={cvDataOptimized.resume} />
-              {cvDataOptimized.experiences?.length > 0 && <OptimizedSection title="Experiences professionnelles" optimizedText={formatExperiences(cvDataOptimized.experiences)} />}
-              {cvDataOptimized.formations?.length > 0 && <OptimizedSection title="Formations" optimizedText={formatFormations(cvDataOptimized.formations)} />}
-              <OptimizedSection title="Competences techniques" optimizedText={cvDataOptimized.competences_techniques} />
-              <OptimizedSection title="Soft skills / Qualifications" optimizedText={cvDataOptimized.competences_soft} />
-              <OptimizedSection title="Langues" optimizedText={cvDataOptimized.langues} />
-            </div>
+                {cvOptimise.titre_poste && (
+                  <div className="bg-surface rounded-2xl border border-border/60 p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-display font-bold text-text-primary text-sm">Titre du poste</h3>
+                      <CopyButton texte={cvOptimise.titre_poste} label="Copier le titre" />
+                    </div>
+                    <div className="p-3 bg-success/5 border border-success/10 rounded-xl">
+                      <p className="text-sm text-text-secondary font-medium">{cvOptimise.titre_poste}</p>
+                    </div>
+                  </div>
+                )}
+
+                <OptimizedSection title="Resume professionnel" optimizedText={cvOptimise.resume} />
+                {cvOptimise.experiences?.length > 0 && <OptimizedSection title="Experiences professionnelles" optimizedText={formatExperiences(cvOptimise.experiences)} />}
+                {cvOptimise.formations?.length > 0 && <OptimizedSection title="Formations" optimizedText={formatFormations(cvOptimise.formations)} />}
+                <OptimizedSection title="Competences techniques" optimizedText={cvOptimise.competences_techniques} />
+                <OptimizedSection title="Soft skills / Qualifications" optimizedText={cvOptimise.competences_soft} />
+                <OptimizedSection title="Langues" optimizedText={cvOptimise.langues} />
+              </div>
+            )}
 
             {/* Navigation */}
             <div className="pt-4">
-              <Button variant="outline" onClick={() => { setStep(1); setCvFile(null); setOptimResult(null); setCvDataOptimized(null) }}>
+              <Button variant="outline" onClick={recommencer}>
                 Recommencer
               </Button>
             </div>
