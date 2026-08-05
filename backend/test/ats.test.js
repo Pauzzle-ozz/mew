@@ -597,3 +597,44 @@ test('moyennePonderee refuse des entrees incoherentes', () => {
   assert.throws(() => moyennePonderee([1, null], [1, 1]), TypeError);
   assert.throws(() => moyennePonderee([1, 2], [1, undefined]), TypeError);
 });
+
+/**
+ * Ce test attrape une categorie entiere de bugs invisibles a la relecture :
+ * un message du bareme qui utilise une variable ({x}, {pct}...) que la
+ * fonction de mesure du critere ne fournit pas. Le texte partait alors tel
+ * quel dans l'interface — l'utilisateur lisait « soit {pct}% ».
+ *
+ * C'est exactement ce qui est arrive au critere « dates_presentes ».
+ */
+test('aucun message ne laisse de variable de gabarit non remplacee', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { construireProfil } = require('../src/core/cv/profil');
+  const { recommandations } = require('../src/core/score/recommandations');
+
+  const dossierCv = path.join(__dirname, 'fixtures', 'cv');
+  const profils = fs.readdirSync(dossierCv)
+    .filter((f) => f.endsWith('.txt'))
+    .map((f) => fs.readFileSync(path.join(dossierCv, f), 'utf8'));
+
+  // Deux passes : avec et sans mots-cles de poste, pour couvrir aussi les
+  // criteres qui ne s'activent que dans l'un des deux cas.
+  for (const texte of profils) {
+    for (const motsClesPoste of [[], ['infirmier', 'soins', 'patients']]) {
+      const evaluation = scoreAts(construireProfil(texte), { texteBrut: texte, motsClesPoste });
+      const { pointsForts, ameliorations } = recommandations(evaluation);
+
+      const messages = [
+        ...evaluation.criteres.map((c) => c.message),
+        ...pointsForts.map((p) => p.message),
+        ...ameliorations.map((a) => a.message)
+      ].filter(Boolean);
+
+      for (const message of messages) {
+        const restantes = String(message).match(/\{[a-zA-Z_]+\}/g);
+        assert.equal(restantes, null,
+          `variable non remplacee ${restantes} dans : "${String(message).slice(0, 90)}"`);
+      }
+    }
+  }
+});

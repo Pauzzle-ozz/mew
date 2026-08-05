@@ -403,7 +403,10 @@ const MESURES = {
     const total = ctx.experiences.length;
     if (total === 0) return { applicable: false };
     const datees = ctx.experiences.filter((e) => enIndexMois(e.debut) !== null).length;
-    return { applicable: true, ratio: datees / total, variables: { x: datees, y: total } };
+    const part = datees / total;
+    // `pct` est indispensable : le message de ce critere l'utilise, et sans lui
+    // l'utilisateur lisait « soit {pct}% » tel quel dans l'interface.
+    return { applicable: true, ratio: part, variables: { x: datees, y: total, pct: Math.round(part * 100) } };
   },
 
   dates_coherentes(ctx) {
