@@ -68,9 +68,16 @@ test('ecrire puis lire rend exactement ce qui a ete enregistre', async () => {
     assert.equal(relu.baseURL, 'https://api.openai.com/v1');
     assert.equal(configUtilisateur.estConfigure(), true);
 
-    // Et le fichier sur le disque doit etre du JSON relisible.
+    // Et le fichier sur le disque doit etre du JSON relisible, a la forme v2 :
+    // les acces d'un cote, l'affectation des taches de l'autre.
     const surDisque = JSON.parse(fs.readFileSync(fichier, 'utf8'));
-    assert.equal(surDisque.fournisseur, 'openai');
+    assert.equal(surDisque.version, 2);
+    assert.equal(surDisque.comptes[0].fournisseur, 'openai');
+    // Enregistrer a l'ancienne forme veut dire « voici mon moteur » : toutes
+    // les taches sont repointees vers ce compte, avec le modele de leur role.
+    assert.equal(surDisque.taches.lettre.fournisseur, 'openai');
+    assert.equal(surDisque.taches.lettre.modele, 'gpt-5.6-terra');
+    assert.equal(surDisque.taches['cv-optimise'].modele, 'gpt-4o-mini');
   } finally {
     nettoyer();
   }

@@ -55,7 +55,12 @@ function repondreErreurIa(res, erreur) {
   const code = typeof erreur.code === 'string' ? erreur.code : '';
 
   // Aucune cle configuree : l'erreur vient de notre propre code (aiService).
-  if (code === 'IA_NON_CONFIGUREE') {
+  //
+  // IA_DESACTIVEE est traite pareil mais reste un code A PART : ce n'est pas
+  // une panne, c'est un interrupteur que l'utilisateur a lui-meme bascule. Le
+  // message d'aiService dit deja ou le rallumer ; on ne le reecrit pas, et
+  // surtout on n'y ajoute pas « verifie ta cle » — elle va tres bien.
+  if (code === 'IA_NON_CONFIGUREE' || code === 'IA_DESACTIVEE') {
     res.status(503).json({ success: false, error: message, code });
     return true;
   }

@@ -39,7 +39,9 @@ class CandidatureSpontaneeService {
     // nous-memes dicte la structure. Un split() suffit, et le parseur gere
     // plus de cas degrades que le modele qu'il remplace.
     const genPrompt = buildEmailPrompt({ cvText, targetPosition, company, contactName });
-    const texteGenere = await aiService.generate(genPrompt, { role: 'redaction', temperature: 0.7 });
+    const texteGenere = await aiService.generate(genPrompt, {
+      tache: 'email-spontane', role: 'redaction', temperature: 0.7
+    });
 
     const { subject, body } = parseEmailGenere(texteGenere);
     if (!subject || !body) {

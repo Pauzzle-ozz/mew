@@ -17,6 +17,7 @@
  */
 
 const { verifieLe, ROLES, ADAPTATEURS, FOURNISSEURS } = require('./catalogue');
+const guides = require('./guides');
 
 /**
  * Compare un identifiant fourni par l'exterieur.
@@ -103,6 +104,22 @@ function modelesPourRole(idFournisseur, role) {
   return f.modeles.filter((m) => m.roles.includes(role));
 }
 
+/**
+ * Le catalogue tel que l'INTERFACE en a besoin : chaque fournisseur augmente
+ * de son guide (atouts, limites, confidentialite, comment obtenir la cle),
+ * chaque modele de sa note, et le tout trie — les fournisseurs mis en avant
+ * d'abord.
+ *
+ * Fonction separee de fournisseurs() a dessein : le code qui appelle un modele
+ * n'a que faire de ces textes, et il ne doit pas payer leur assemblage a
+ * chaque resolution.
+ *
+ * @returns {Array<object>} une copie neuve ; le catalogue reste gele
+ */
+function fournisseursAvecGuides() {
+  return guides.enrichir(FOURNISSEURS);
+}
+
 module.exports = {
   verifieLe,
   ROLES,
@@ -111,5 +128,9 @@ module.exports = {
   fournisseur,
   modele,
   tarif,
-  modelesPourRole
+  modelesPourRole,
+  fournisseursAvecGuides,
+  guideFournisseur: guides.guideFournisseur,
+  noteModele: guides.noteModele,
+  MISE_EN_AVANT: guides.MISE_EN_AVANT
 };

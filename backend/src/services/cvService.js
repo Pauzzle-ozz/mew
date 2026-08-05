@@ -129,15 +129,23 @@ class CVService {
       message: 'Score ATS calcule'
     };
 
-    // --- Partie reecriture, seulement si un moteur d'IA est configure -------
-    if (!aiService.estDisponible()) {
+    // --- Partie reecriture, seulement si la tache est disponible ------------
+    //
+    // On distingue les deux raisons possibles : « tu l'as coupee » et « aucun
+    // moteur n'est configure » ne se corrigent pas au meme endroit. Les
+    // confondre enverrait quelqu'un verifier une cle qui va tres bien.
+    const raison = aiService.raisonIndisponible('cv-optimise');
+    if (raison) {
       return {
         ...base,
         cvData_optimise: null,
         degraded: true,
-        message: 'Score ATS calcule. La reecriture assistee necessite une cle API '
-          + '(voir backend/.env.example) : les axes d\'amelioration ci-dessus '
-          + 'restent applicables a la main.'
+        message: raison === 'coupee'
+          ? 'Score ATS calcule. Tu as coupe la reecriture par l\'IA pour cet outil dans tes '
+            + 'Parametres : les axes d\'amelioration ci-dessus restent applicables a la main.'
+          : 'Score ATS calcule. La reecriture demande un moteur d\'IA : ouvre les Parametres '
+            + 'de Mew pour en choisir un (un modele local comme Ollama fonctionne, sans cle). '
+            + 'Les axes d\'amelioration ci-dessus restent applicables a la main.'
       };
     }
 
@@ -152,7 +160,9 @@ class CVService {
     const optimPrompt = buildOptimisePdfPrompt(cvText, numPages, posteCible);
     // Meme role de modele qu'avant (« extraction », rapide et bon marche) :
     // on retire un appel, on ne change pas la facture de celui qui reste.
-    const texteGenere = await aiService.generate(optimPrompt, { role: 'extraction' });
+    const texteGenere = await aiService.generate(optimPrompt, {
+      tache: 'cv-optimise', role: 'extraction'
+    });
     const cvOptimise = parseCvOptimise(texteGenere);
 
     return {

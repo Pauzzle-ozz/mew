@@ -140,8 +140,8 @@ class MatcherService {
     const result = await aiService.generateThenConvert(
       genPrompt,
       personalizedCVToJSON('{{GENERATED_TEXT}}'),
-      { role: 'redaction', temperature: 0.7, maxTokens: 2000 },
-      { role: 'extraction' }
+      { tache: 'cv-adapte', role: 'redaction', temperature: 0.7, maxTokens: 2000 },
+      { tache: 'cv-adapte', role: 'extraction' }
     );
 
     if (!result.personalizedCV) {
@@ -171,6 +171,7 @@ class MatcherService {
       : buildMatcherLettrePrompt(offre, candidate);
 
     const texte = await aiService.generate(genPrompt, {
+      tache: 'lettre',
       role: 'redaction',
       temperature: 0.7,
       maxTokens: 1500
@@ -239,7 +240,7 @@ class MatcherService {
     log.info('Extraction du profil candidat depuis un CV PDF');
 
     const prompt = buildExtractCandidatPrompt(cvText);
-    const result = await aiService.generateJSON(prompt, { role: 'extraction' });
+    const result = await aiService.generateJSON(prompt, { tache: 'profil-cv', role: 'extraction' });
 
     if (!result.prenom && !result.nom) {
       throw new Error("Impossible d'extraire les informations du candidat depuis ce CV");

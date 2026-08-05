@@ -176,6 +176,88 @@ function iaEffective() {
   };
 }
 
+/**
+ * Le repli par role quand il n'y en a pas : voir le commentaire dans
+ * iaPourTache, c'est un choix, pas un oubli.
+ */
+const MODELES_VIDES = Object.freeze({ redaction: '', extraction: '' });
+
+/**
+ * La configuration a appliquer POUR UNE TACHE PRECISE.
+ *
+ * C'est ce qui permet « tel modele lit mes CV, tel autre redige mes lettres »,
+ * y compris quand les deux ne sont pas chez le meme fournisseur : chaque tache
+ * remonte son propre acces, donc sa propre cle.
+ *
+ * L'ARBITRAGE EST LE MEME QUE POUR LE RESTE, et c'est important : quand
+ * backend/.env impose une cle, il l'impose a TOUTES les taches. Une
+ * installation faite pour d'autres ne doit pas pouvoir etre contournee tache
+ * par tache depuis l'interface.
+ *
+ * @param {string} idTache
+ * @returns {{source: string, fournisseur: string, adaptateur: string,
+ *            cleApi: string, baseURL: string, modele: string,
+ *            coupee: boolean}|null}
+ *   null quand rien n'est configure. `coupee` a true quand l'utilisateur a
+ *   explicitement eteint cette tache : ce n'est pas une panne, c'est un choix,
+ *   et le message a lui montrer n'est pas le meme.
+ */
+function iaPourTache(idTache) {
+  const source = sourceIa();
+  if (source === 'aucune') return null;
+
+  // Le .env gagne : il s'applique tel quel a toutes les taches. Lui seul
+  // raisonne encore en ROLES, d'ou le `modeles` transmis en repli.
+  if (source === 'env') {
+    const effective = iaEffective();
+    return {
+      source,
+      fournisseur: effective.fournisseur,
+      adaptateur: effective.adaptateur,
+      cleApi: effective.cleApi,
+      baseURL: effective.baseURL,
+      modele: '',
+      modeles: effective.modeles,
+      coupee: false
+    };
+  }
+
+  if (configUtilisateur.tacheCoupee(idTache)) {
+    return {
+      source,
+      fournisseur: '',
+      adaptateur: '',
+      cleApi: '',
+      baseURL: '',
+      modele: '',
+      modeles: MODELES_VIDES,
+      coupee: true
+    };
+  }
+
+  const reglage = configUtilisateur.pourTache(idTache);
+  if (!reglage) return null;
+
+  const f = fournisseurDuCatalogue(reglage.fournisseur);
+  return {
+    source,
+    fournisseur: reglage.fournisseur,
+    adaptateur: (f && f.adaptateur) || 'openai-compatible',
+    cleApi: reglage.cleApi,
+    // Repli sur le catalogue : un fichier ecrit a la main peut ne pas porter
+    // d'adresse alors que son fournisseur en a une.
+    baseURL: reglage.baseURL || (f && f.baseURL) || '',
+    modele: reglage.modele,
+    // Vide pour une tache connue, et surtout pas MODELES_DEFAUT : le bon repli
+    // est alors le catalogue DU FOURNISSEUR DE CETTE TACHE, ce que aiService
+    // sait faire. Proposer « gpt-4o » a une cle Anthropic donnerait une erreur
+    // « modele introuvable » incomprehensible. Sans tache connue, en revanche,
+    // configUtilisateur remonte le reglage general par role.
+    modeles: reglage.modeles || MODELES_VIDES,
+    coupee: false
+  };
+}
+
 Object.defineProperties(config.ia, {
   source: { enumerable: true, get: () => iaEffective().source },
   fournisseur: { enumerable: true, get: () => iaEffective().fournisseur },
@@ -191,7 +273,10 @@ Object.defineProperties(config.ia, {
   modeles: { enumerable: true, get: () => iaEffective().modeles },
   // La configuration MASQUEE du fichier utilisateur, pour les routes de
   // reglages. La cle en clair ne passe jamais par ici.
-  choixUtilisateur: { enumerable: false, get: () => configUtilisateur.lireMasquee() }
+  choixUtilisateur: { enumerable: false, get: () => configUtilisateur.lireMasquee() },
+  // Non enumerable : c'est une FONCTION, elle n'a rien a faire dans un
+  // JSON.stringify(config.ia) ni dans le resume de demarrage.
+  pourTache: { enumerable: false, value: iaPourTache }
 });
 
 /**

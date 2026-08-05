@@ -63,8 +63,9 @@ frontend (Next.js 16, port 3000)
 - `lib/auth.js` — **point d'entrée unique de l'authentification**, deux modes (`local` par défaut, `supabase`). `getUser`, `signIn`, `signUp`, `signOut`, `estModeLocal`. `signOut()` renvoie `false` en mode local (rien à quitter) : les pages s'en servent pour savoir s'il faut rediriger.
 - `lib/supabase.js` — client paresseux + `supabaseConfigured`
 - `lib/api/` — un client par domaine + `config.js` (`API_URL` avec repli sur `localhost:5000`, `lireReponse`, `messageErreurReseau`)
-- `app/parametres/page.js` — l'écran de choix du fournisseur. **L'état vit dans la page, pas dans les composants** : les cinq étapes se répondent (changer de fournisseur invalide la clé, les modèles et le résultat du test). `components/parametres/` n'expose que des champs contrôlés.
-- `lib/api/iaApi.js` — client des routes `/api/ia`
+- `app/parametres/` — l'espace Paramètres, **quatre onglets, quatre routes** : `page.js` = « Mes IA » (les accès), `outils/` = « Outils & modèles » (IA oui/non par tâche + quel modèle), `donnees/`, `apparence/`. De vrais liens et pas un `useState` : on peut revenir en arrière et mettre un onglet en favori.
+- `context/ParametresIaContext.js` — **l'état vit dans le layout, pas dans les onglets**. Les réglages se répondent (retirer un accès libère les tâches qui le visaient, ajouter une clé rend une dizaine de modèles choisissables) ; un état éclaté laisserait des affirmations fausses à l'écran. Après chaque écriture, **c'est la réponse du backend qui devient l'état** — on ne devine jamais.
+- `lib/api/iaApi.js` (transport + appels) et `lib/api/iaNormalisation.js` (mise en forme des réponses) — client des routes `/api/ia`
 - `components/cv/`, `components/matcher/`, `components/shared/`
 - `context/ThemeContext.js` — thème clair/sombre (localStorage `mew-theme`)
 
@@ -88,34 +89,58 @@ C'est là que vit la logique du produit. **Zéro réseau, zéro I/O, 100 % testa
 
 ## Ce qu'il reste au LLM
 
-**5 points d'appel, 6 appels réseau au maximum**, tous de la rédaction :
+**5 points d'appel, 6 appels réseau au maximum**, tous de la rédaction. Chacun porte un identifiant de **tâche**, déclaré dans `llm/taches.js` :
 
-| Service | Ligne | Appels | Pour quoi |
-|---|---|---:|---|
-| `matcherService` | 140 · 173 · 242 | 4 | CV adapté (`generateThenConvert` = 2 appels), lettre, extraction de profil PDF |
-| `cvService` | 155 | 1 | réécriture du CV optimisé — le score, lui, est calculé |
-| `candidatureSpontaneeService` | 42 | 1 | rédaction de l'email d'approche |
+| Tâche | Service · ligne | Appels | Outil | Rôle |
+|---|---|---:|---|---|
+| `cv-optimise` | `cvService` 155 | 1 | Optimiseur de CV | extraction |
+| `profil-cv` | `matcherService` 242 | 1 | Matcher d'offres | extraction |
+| `cv-adapte` | `matcherService` 140 | 2 (`generateThenConvert`) | Matcher d'offres | redaction |
+| `lettre` | `matcherService` 173 | 1 | Matcher d'offres | redaction |
+| `email-spontane` | `candidatureSpontaneeService` 42 | 1 | Candidature spontanée | redaction |
 
-Les modèles sont désignés par **rôle** (`redaction`, `extraction`), jamais par nom dans le code métier.
+Les modèles sont désignés par **tâche** (`aiService.generate(prompt, { tache: 'lettre', role: 'redaction' })`), jamais par nom dans le code métier. Le `role` reste passé : il sert de repli quand la tâche n'a pas de modèle attribué, et il fait toujours foi pour une installation pilotée par `.env`.
+
+**Ajouter un point d'appel = ajouter une entrée dans `llm/taches.js`** puis passer son `tache:` à l'appel. Elle apparaît alors toute seule dans l'écran Paramètres, avec son interrupteur et son choix de modèle. L'`id` est écrit dans `config-ia.json` : le renommer ferait perdre son réglage à l'utilisateur.
+
+Chaque tâche peut être **coupée** par l'utilisateur. `aiService` lève alors `IA_DESACTIVEE` (distinct de `IA_NON_CONFIGUREE` : ce n'est pas une panne, et le message ne doit pas envoyer vérifier une clé qui va très bien). `aiService.estDisponible(tache)` et `.raisonIndisponible(tache)` (`'coupee' | 'non-configuree' | null`) permettent aux services de se dégrader proprement — seul `cvService` le fait à ce jour.
 
 `generateThenConvert` fait **deux** appels pour une seule information : chaque usage restant est une dette à rembourser. Format retenu pour les sorties structurées : **marqueurs texte découpés en JS** (`llm/parseurs/`), pas les Structured Outputs d'OpenAI. C'est ce qui rend le projet portable : un petit modèle local ne sait pas produire du JSON contraint, mais il sait suivre « écris `SUBJECT:` puis une ligne de tirets puis le corps ».
 
-## Le choix du fournisseur (`backend/src/llm/`)
+## Le choix des fournisseurs (`backend/src/llm/`)
 
-**L'utilisateur choisit son fournisseur ET son modèle depuis l'écran Paramètres**, avec sa propre clé. N'importe quel modèle est atteignable : ChatGPT, Claude, Gemini, Kimi, Mistral, un modèle local, une adresse compatible OpenAI quelconque.
+**L'utilisateur enregistre autant de fournisseurs qu'il veut, chacun avec sa clé, puis attribue à chaque tâche le modèle de son choix — chez n'importe lequel d'entre eux.** « Ce modèle-là lit mes CV, cet autre rédige mes lettres » fonctionne même quand les deux ne sont pas chez le même fournisseur. N'importe quel modèle est atteignable : ChatGPT, Claude, Gemini, Kimi, Mistral, un modèle local, une adresse compatible OpenAI quelconque.
 
 | Fichier | Rôle |
 |---|---|
-| `llm/providers/catalogue.js` | **de la donnée, pas du code** : 16 fournisseurs, leurs modèles, tarifs, fenêtres. Gelé en profondeur. |
-| `llm/providers/index.js` | seule porte d'entrée du catalogue. Ne lève **jamais**, quoi qu'on lui passe. |
+| `llm/taches.js` | **de la donnée** : les 5 tâches IA et les 5 outils, avec ce que chaque outil calcule **tout seul**. C'est ce qui permet de dire, outil par outil, ce qui passe par l'IA. |
+| `llm/providers/catalogue.js` | **de la donnée** : 16 fournisseurs, leurs modèles, tarifs, fenêtres. Gelé en profondeur. |
+| `llm/providers/guides/` | **de la donnée éditoriale** : par fournisseur, atouts / limites / confidentialité / comment obtenir la clé ; par modèle, une note quand on a quelque chose d'honnête à dire. Séparé du catalogue : deux publics, deux fichiers. |
+| `llm/providers/index.js` | seule porte d'entrée du catalogue. Ne lève **jamais**, quoi qu'on lui passe. `fournisseursAvecGuides()` sert l'interface. |
+| `llm/config/schema.js` | la forme du fichier de réglages (v2) et la **reprise automatique** d'un fichier v1. `versV1()` reconstruit l'ancienne vue : tout le code qui lisait `config.ia.fournisseur` marche sans changement. |
+| `llm/config/validation.js` | le point de contrôle : un accès, l'affectation des tâches, et `validerV1()` pour l'ancienne route |
+| `llm/configUtilisateur.js` | lit/écrit `backend/data/config-ia.json`. Écriture atomique, `chmod 0600`, cache mémoire. |
 | `llm/adapters/index.js` | répartiteur nom → module, chargement **paresseux** (un adaptateur cassé ne doit pas empêcher le serveur de démarrer) |
 | `llm/adapters/{openaiCompatible,anthropic,google}.js` | les 3 seuls protocoles. Anthropic et Google via `fetch` natif, **sans leur SDK**. |
-| `llm/configUtilisateur.js` | lit/écrit `backend/data/config-ia.json`. Écriture atomique, `chmod 0600`, cache mémoire. |
 | `llm/testConnexion.js` | le bouton « Tester » : envoie un vrai mini-prompt et le découpe avec le **vrai** parseur |
 | `llm/parseurs/` | découpage des sorties à marqueurs (`emailSpontane`, `cvOptimise`) |
 | `llm/cout.js` | estimation de coût à partir des tarifs du catalogue |
 
-**Ajouter un fournisseur compatible OpenAI = copier une entrée du catalogue.** Aucun autre fichier à toucher ; `backend/test/catalogue.test.js` vérifie que l'entrée est complète.
+**Ajouter un fournisseur compatible OpenAI = copier une entrée du catalogue, plus une entrée dans `guides/fournisseurs.js`.** Aucun autre fichier à toucher ; `catalogue.test.js` vérifie que l'entrée est complète et `configIaMultiComptes.test.js` que son guide l'est aussi.
+
+### La forme de `config-ia.json`
+
+```json
+{
+  "version": 2,
+  "comptes": [ { "fournisseur": "anthropic", "cleApi": "...", "baseURL": "..." } ],
+  "taches": { "lettre": { "actif": true, "fournisseur": "anthropic", "modele": "claude-opus-5" } }
+}
+```
+
+Deux choses séparées : **où j'ai un accès** et **ce que je fais avec**. Un fichier à l'ancienne forme (`{ fournisseur, cleApi, baseURL, modeles }`) est repris tout seul par `schema.depuisV1` — la clé devient un compte, toutes les tâches pointent vers lui avec le modèle de leur rôle. **Personne ne ressaisit rien.**
+
+Résolution du modèle d'une tâche, du plus précis au plus général : le modèle de la tâche → celui d'une autre tâche du **même rôle sur le même compte** → le premier du catalogue **de ce fournisseur** capable de tenir ce rôle. Jamais un nom de modèle venu d'un autre fournisseur : ça donnerait un « modèle introuvable » incompréhensible. `frontend/lib/utils/resolutionTache.js` rejoue cette règle pour l'afficher — si vous la changez, changez les deux.
 
 ### Le contrat des adaptateurs
 
@@ -133,13 +158,23 @@ L'arbitrage est dans `config/index.js`, en propriétés **calculées** (`config.
 
 ### Trois règles non négociables sur la clé
 
-1. Elle ne repart **jamais** vers le navigateur. Une seule fonction a le droit de décrire la config vers l'extérieur : `configUtilisateur.lireMasquee()`, qui rend `sk-p...4f2a`.
-2. Elle n'apparaît **jamais** dans un log ni dans un message d'erreur. `routes/ia.js` ne logue jamais le corps des requêtes.
+1. Elle ne repart **jamais** vers le navigateur. Deux fonctions seulement ont le droit de décrire la config vers l'extérieur : `configUtilisateur.lireMasquee()` (ancienne forme) et `.lireEtat()` (tous les comptes), qui rendent `sk-p...4f2a`.
+2. Elle n'apparaît **jamais** dans un log ni dans un message d'erreur. Les routes `/api/ia` ne loguent jamais le corps des requêtes.
 3. Elle ne transite **jamais** dans une URL — d'où le `POST /api/ia/modeles/:fournisseur` en plus du `GET`.
 
 ### Routes
 
-`/api/ia` (monté sans authentification, comme `/api/capacites`) : `GET /fournisseurs`, `GET·PUT·DELETE /config`, `POST /tester` (seule route derrière le limiteur : c'est la seule qui appelle vraiment un fournisseur), `GET·POST /modeles/:fournisseur`.
+`/api/ia` (monté sans authentification, comme `/api/capacites`), réparti sur trois fichiers : `routes/ia.js` (ce qui lit ou essaie), `routes/iaReglages.js` (ce qui écrit), `routes/iaCommun.js` (leurs helpers partagés).
+
+| Route | Pour quoi |
+|---|---|
+| `GET /fournisseurs` | tout ce qu'il faut pour construire l'écran, en un appel : catalogue + guides + outils + tâches |
+| `GET /etat` | les accès (clés masquées) et l'affectation des tâches |
+| `PUT·DELETE /comptes/:fournisseur` | ajouter / retirer un accès. Une clé absente du corps veut dire « garde la mienne » |
+| `PUT /taches` | l'affectation complète. **Pas une fusion partielle** : sans ça, impossible de rallumer une tâche coupée |
+| `GET·PUT·DELETE /config` | l'ancienne forme, toujours servie. `PUT` veut dire « voici mon moteur » : l'accès est enregistré et toutes les tâches sont repointées vers lui |
+| `POST /tester` | seule route derrière le limiteur : c'est la seule qui appelle vraiment un fournisseur |
+| `GET·POST /modeles/:fournisseur` | le listage en direct |
 
 ## Commandes
 

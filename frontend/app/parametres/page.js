@@ -1,572 +1,194 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import Header from '@/components/shared/Header';
-import LoadingScreen from '@/components/shared/LoadingScreen';
-import Alert from '@/components/shared/Alert';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import Button from '@/components/shared/Button';
-import ChoixFournisseur from '@/components/parametres/ChoixFournisseur';
-import ChampAdresse from '@/components/parametres/ChampAdresse';
-import ChampCle from '@/components/parametres/ChampCle';
-import ChoixModeles from '@/components/parametres/ChoixModeles';
-import ResultatTest from '@/components/parametres/ResultatTest';
-import {
-  getFournisseurs,
-  getConfig,
-  getModeles,
-  enregistrerConfig,
-  supprimerConfig,
-  testerConnexion,
-} from '@/lib/api/iaApi';
+import LoadingScreen from '@/components/shared/LoadingScreen';
+import CarteFournisseur from '@/components/parametres/CarteFournisseur';
+import PanneauCompte from '@/components/parametres/PanneauCompte';
+import { useParametresIa } from '@/context/ParametresIaContext';
 
 /**
- * ECRAN PARAMETRES — le choix du modele.
+ * ONGLET « MES IA » : chez qui j'ai un acces, et avec quelle cle.
  *
- * CE QUE CET ECRAN CHANGE
- * Avant, le fournisseur d'IA se decidait dans un fichier .env, donc par la
- * personne qui lance le serveur. Ici, c'est l'utilisateur qui choisit : son
- * fournisseur, ses modeles, sa cle. Un modele qui tourne sur son ordinateur,
- * un service en ligne, ou n'importe quelle adresse compatible OpenAI.
+ * POURQUOI ON N'AFFICHE PAS LES SEIZE FOURNISSEURS D'UN COUP
+ * Mis a plat, ils se ressemblent tous et le choix devient un tirage au sort.
+ * On montre d'abord ceux dont le nom parle a quelqu'un qui n'a jamais paye
+ * d'API, plus les deux facons de tout faire tourner chez soi. Les autres ne
+ * sont ni caches ni moins bons : ils sont a un clic, derriere « voir les
+ * autres ». C'est le backend qui decide lesquels sont mis en avant
+ * (llm/providers/guides/), pour que l'interface n'ait pas sa propre liste qui
+ * derive avec le temps.
  *
- * LE PARCOURS, EN CINQ TEMPS
- *   1. chez qui       — cartes groupees, le local en premier
- *   2. la cle         — jamais reaffichee en clair, lien vers la page ou on la cree
- *   3. les modeles    — un par role, avec tarif et fenetre
- *   4. le test        — AVANT d'enregistrer, avec le detail de ce qui s'est passe
- *   5. l'enregistrement
+ * UN FOURNISSEUR DEJA CONFIGURE EST TOUJOURS VISIBLE, meme s'il n'est pas mis
+ * en avant : cacher un acces qu'on a soi-meme enregistre serait le meilleur
+ * moyen de ne plus jamais le retrouver.
  *
- * POURQUOI L'ETAT VIT ICI ET PAS DANS LES COMPOSANTS
- * Les cinq etapes se repondent : changer de fournisseur invalide la cle, les
- * modeles et le resultat du test. Un etat eclate dans cinq composants aurait
- * laisse trainer un test reussi sous une configuration qui n'existe plus —
- * exactement le genre de mensonge qu'on veut eviter sur cet ecran.
+ * TROIS GROUPES, ET L'ORDRE COMPTE
+ *   « Sur ta machine »  gratuit, sans cle, et le CV ne quitte pas l'ordinateur.
+ *                       En premier, parce que c'est le plus respectueux et que
+ *                       personne n'y pense spontanement.
+ *   « En ligne »        une cle, quelques centimes, et la meilleure qualite.
+ *   « Autre »           la porte de sortie : n'importe quelle adresse
+ *                       compatible OpenAI. Aucun modele n'est hors de portee.
  */
-export default function ParametresPage() {
-  const { user, loading, logout } = useAuth();
+const GROUPES = [
+  {
+    cle: 'local',
+    titre: 'Sur ta machine',
+    explication:
+      "Gratuit, sans cle, et ton CV ne sort jamais de ton ordinateur. Le logiciel doit tourner de son cote.",
+    filtre: (f) => f.local,
+  },
+  {
+    cle: 'ligne',
+    titre: 'En ligne',
+    explication:
+      'Il te faut un compte chez eux et ta propre cle. Compte quelques centimes par lettre de motivation.',
+    filtre: (f) => !f.local && f.id !== 'personnalise',
+  },
+  {
+    cle: 'autre',
+    titre: 'Autre fournisseur',
+    explication:
+      "Pour tout le reste : tu saisis toi-meme l'adresse de l'API. Aucun modele n'est hors de portee.",
+    filtre: (f) => f.id === 'personnalise',
+  },
+];
 
-  // --- chargement initial ---------------------------------------------------
-  const [chargement, setChargement] = useState(true);
-  const [catalogue, setCatalogue] = useState(null);
-  const [backendTropAncien, setBackendTropAncien] = useState(false);
+const ID_PANNEAU = 'panneau-fournisseur';
 
-  // --- la configuration en cours d'edition ---------------------------------
-  const [idFournisseur, setIdFournisseur] = useState('');
-  const [baseURL, setBaseURL] = useState('');
-  // null = « garde la cle deja enregistree ». Voir ChampCle.jsx.
-  const [cle, setCle] = useState(null);
-  const [cleVisible, setCleVisible] = useState(false);
-  const [cleMasquee, setCleMasquee] = useState(null);
-  const [modeles, setModeles] = useState({ redaction: '', extraction: '' });
+export default function OngletMesIa() {
+  const { chargement, backendTropAncien, fournisseurs, comptes, compteDe, fournisseurDe }
+    = useParametresIa();
 
-  // Ce que le backend a repondu au chargement : sert a savoir si la cle
-  // enregistree appartient bien au fournisseur actuellement selectionne.
-  const [configEnregistree, setConfigEnregistree] = useState(null);
+  const [ouvert, setOuvert] = useState(null);
+  const [toutVoir, setToutVoir] = useState(false);
 
-  // --- le listage en direct des modeles ------------------------------------
-  const [modelesDynamiques, setModelesDynamiques] = useState(null);
-  const [listageEnCours, setListageEnCours] = useState(false);
-  const [listageErreur, setListageErreur] = useState('');
+  /** Visible d'emblee : les mis en avant, plus tout ce qui est deja configure. */
+  const estVisible = useMemo(() => {
+    const configures = new Set(comptes.map((c) => c.fournisseur));
+    return (f) => toutVoir || f.enAvant || configures.has(f.id);
+  }, [comptes, toutVoir]);
 
-  // --- actions --------------------------------------------------------------
-  const [test, setTest] = useState(null);
-  const [testEnCours, setTestEnCours] = useState(false);
-  const [enregistrementEnCours, setEnregistrementEnCours] = useState(false);
-  const [confirmationEffacement, setConfirmationEffacement] = useState(false);
-  const [erreur, setErreur] = useState('');
-  const [succes, setSucces] = useState('');
-
-  // useMemo et pas un simple ternaire : sans lui, le `[]` du cas « pas encore
-  // charge » serait un tableau NEUF a chaque rendu, ce qui reveillerait tous
-  // les useMemo/useCallback qui en dependent a chaque frappe au clavier.
-  const fournisseurs = useMemo(() => (catalogue ? catalogue.fournisseurs : []), [catalogue]);
-  const fournisseur = useMemo(
-    () => fournisseurs.find((f) => f.id === idFournisseur) || null,
-    [fournisseurs, idFournisseur]
+  const caches = useMemo(
+    () => fournisseurs.filter((f) => !estVisible(f)).length,
+    [fournisseurs, estVisible]
   );
 
-  /**
-   * La liste proposee dans les deux menus.
-   * Le catalogue passe en premier : lui seul porte les tarifs et les roles.
-   * Le listage en direct complete avec ce que le fournisseur declare vraiment
-   * avoir — c'est ce qui rend Ollama et OpenRouter utilisables.
-   */
-  const modelesDisponibles = useMemo(() => {
-    const statiques = fournisseur ? fournisseur.modeles : [];
-    if (!modelesDynamiques) return statiques;
+  if (chargement) return <LoadingScreen message="Lecture de tes acces..." />;
+  if (backendTropAncien) return null;
 
-    const connus = new Set(statiques.map((m) => m.id));
-    return [...statiques, ...modelesDynamiques.filter((m) => !connus.has(m.id))];
-  }, [fournisseur, modelesDynamiques]);
-
-  // -------------------------------------------------------------------------
-  // Chargement initial
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    let monte = true;
-
-    (async () => {
-      try {
-        const cat = await getFournisseurs();
-        if (!monte) return;
-
-        // getFournisseurs renvoie null quand la route n'existe pas : ce n'est
-        // pas une panne, c'est un backend qui n'a pas encore cet ecran.
-        if (!cat) {
-          setBackendTropAncien(true);
-          return;
-        }
-        setCatalogue(cat);
-
-        const config = await getConfig();
-        if (!monte || !config) return;
-
-        setConfigEnregistree(config);
-
-        const connu = cat.fournisseurs.find((f) => f.id === config.fournisseur);
-        if (!connu) {
-          // Un fournisseur enregistre puis retire du catalogue laisserait la
-          // page muette, avec un formulaire vierge et aucune explication.
-          if (config.fournisseur) {
-            setErreur(
-              `Le fournisseur enregistre (« ${config.fournisseur} ») n'existe plus dans le `
-              + 'catalogue de cette version de Mew. Choisis-en un ci-dessous.'
-            );
-          }
-          return;
-        }
-
-        setIdFournisseur(connu.id);
-        setBaseURL(config.baseURL || connu.baseURL || '');
-        setCleMasquee(config.cleMasquee);
-        setCle(config.cleEnregistree ? null : '');
-        setModeles({
-          redaction: config.modeleRedaction || '',
-          extraction: config.modeleExtraction || '',
-        });
-      } catch (probleme) {
-        if (monte) setErreur(probleme.message);
-      } finally {
-        if (monte) setChargement(false);
-      }
-    })();
-
-    return () => { monte = false; };
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Changer de fournisseur remet tout le reste a zero
-  // -------------------------------------------------------------------------
-  const choisirFournisseur = useCallback((id) => {
-    const nouveau = fournisseurs.find((f) => f.id === id);
-    if (!nouveau) return;
-
-    setIdFournisseur(id);
-    setBaseURL(nouveau.baseURL || '');
-    setModelesDynamiques(null);
-    setListageErreur('');
-    // Un test reussi chez OpenAI ne dit rien de Mistral : le garder a l'ecran
-    // laisserait croire que la nouvelle configuration est validee.
-    setTest(null);
-    setSucces('');
-    setErreur('');
-
-    // La cle enregistree appartient a UN fournisseur. Si on en change, elle
-    // n'a plus cours : on repart sur une saisie vierge.
-    const memeQuAvant = configEnregistree && configEnregistree.fournisseur === id;
-    setCleMasquee(memeQuAvant ? configEnregistree.cleMasquee : null);
-    setCle(memeQuAvant && configEnregistree.cleEnregistree ? null : '');
-    setCleVisible(false);
-
-    setModeles({
-      redaction: memeQuAvant && configEnregistree.modeleRedaction
-        ? configEnregistree.modeleRedaction
-        : modeleParDefaut(nouveau.modeles, 'redaction'),
-      extraction: memeQuAvant && configEnregistree.modeleExtraction
-        ? configEnregistree.modeleExtraction
-        : modeleParDefaut(nouveau.modeles, 'extraction'),
-    });
-  }, [fournisseurs, configEnregistree]);
-
-  const changerModele = useCallback((role, valeur) => {
-    setModeles((precedent) => ({ ...precedent, [role]: valeur }));
-    setTest(null);
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Lister les modeles en direct
-  // -------------------------------------------------------------------------
-  const rechargerModeles = useCallback(async () => {
-    if (!fournisseur) return;
-
-    setListageEnCours(true);
-    setListageErreur('');
-
-    try {
-      // La cle en cours de saisie est transmise : elle part alors dans le
-      // CORPS d'un POST, jamais dans l'URL. C'est ce qui permet de coller sa
-      // cle et de voir aussitot les modeles, sans rien avoir enregistre.
-      const reponse = await getModeles(fournisseur.id, {
-        baseURL: baseURL || null,
-        cleApi: cle || null,
-      });
-      const liste = reponse && reponse.modeles;
-
-      if (!liste || liste.length === 0) {
-        setListageErreur(
-          fournisseur.local
-            ? `Aucun modele trouve. Verifie que ${fournisseur.nom} est lance et qu'au moins un modele est telecharge.`
-            : "Ce fournisseur n'a pas donne sa liste. La liste ci-dessus vient du catalogue de Mew, elle reste utilisable."
-        );
-        return;
-      }
-
-      setModelesDynamiques(liste);
-
-      // Ne rien pre-remplir laisserait deux menus vides juste apres une
-      // recherche reussie : on choisit pour l'utilisateur, il peut changer.
-      setModeles((precedent) => ({
-        redaction: precedent.redaction || liste[0].id,
-        extraction: precedent.extraction || liste[0].id,
-      }));
-    } catch (probleme) {
-      setListageErreur(probleme.message);
-    } finally {
-      setListageEnCours(false);
-    }
-  }, [fournisseur, baseURL, cle]);
-
-  // -------------------------------------------------------------------------
-  // Verifications communes au test et a l'enregistrement
-  // -------------------------------------------------------------------------
-  const manque = useMemo(() => {
-    if (!fournisseur) return 'Choisis d\'abord un fournisseur.';
-    if (!fournisseur.baseURL && !baseURL.trim()) return "Saisis l'adresse de l'API.";
-    if (fournisseur.cleRequise && !cleMasquee && !(cle || '').trim()) {
-      return 'Ce fournisseur demande une cle API.';
-    }
-    if (!modeles.redaction.trim() && !modeles.extraction.trim()) {
-      return 'Choisis au moins un modele.';
-    }
-    return null;
-  }, [fournisseur, baseURL, cle, cleMasquee, modeles]);
-
-  /** La configuration telle qu'elle sera envoyee au backend. */
-  const construireConfig = useCallback(() => {
-    // Si un seul des deux roles est renseigne, il sert pour les deux : mieux
-    // vaut un modele un peu cher pour l'extraction qu'un role sans modele.
-    const redaction = modeles.redaction.trim() || modeles.extraction.trim();
-    const extraction = modeles.extraction.trim() || modeles.redaction.trim();
-
-    return {
-      fournisseur: idFournisseur,
-      baseURL: baseURL.trim() || null,
-      cleApi: (cle || '').trim() || null,
-      modeleRedaction: redaction || null,
-      modeleExtraction: extraction || null,
-    };
-  }, [idFournisseur, baseURL, cle, modeles]);
-
-  // -------------------------------------------------------------------------
-  // Tester
-  // -------------------------------------------------------------------------
-  const lancerTest = useCallback(async () => {
-    if (manque) {
-      setErreur(manque);
-      return;
-    }
-
-    setErreur('');
-    setSucces('');
-    setTestEnCours(true);
-    setTest(null);
-
-    const config = construireConfig();
-    // On teste le modele de redaction : c'est lui qui porte le format a
-    // respecter, donc le seul dont l'echec serait vraiment genant.
-    const resultat = await testerConnexion({
-      fournisseur: config.fournisseur,
-      baseURL: config.baseURL,
-      cleApi: config.cleApi,
-      modele: config.modeleRedaction,
-      role: 'redaction',
-    });
-
-    setTest(resultat);
-    setTestEnCours(false);
-  }, [manque, construireConfig]);
-
-  // -------------------------------------------------------------------------
-  // Enregistrer
-  // -------------------------------------------------------------------------
-  const enregistrer = useCallback(async () => {
-    if (manque) {
-      setErreur(manque);
-      return;
-    }
-
-    setErreur('');
-    setSucces('');
-    setEnregistrementEnCours(true);
-
-    try {
-      const { avertissements } = await enregistrerConfig(construireConfig());
-
-      // On relit plutot que de deviner : c'est le backend qui decide de
-      // l'apercu masque de la cle, et lui seul sait ce qui est reellement
-      // enregistre.
-      const config = await getConfig();
-      if (config) {
-        setConfigEnregistree(config);
-        setCleMasquee(config.cleMasquee);
-      }
-      setCle(null);
-      setCleVisible(false);
-
-      // Le backend accepte les configurations imparfaites en le signalant
-      // (modele absent du catalogue, prefixe de cle inhabituel). Les taire
-      // reviendrait a laisser croire que tout est parfait.
-      setSucces(
-        'Configuration enregistree. Les outils de Mew utilisent desormais ce modele.'
-        + (avertissements.length > 0 ? ` ${avertissements.join(' ')}` : '')
-      );
-    } catch (probleme) {
-      setErreur(probleme.message);
-    } finally {
-      setEnregistrementEnCours(false);
-    }
-  }, [manque, construireConfig]);
-
-  // -------------------------------------------------------------------------
-  // Effacer
-  // -------------------------------------------------------------------------
-  const effacer = useCallback(async () => {
-    setErreur('');
-    setSucces('');
-
-    try {
-      await supprimerConfig();
-      setConfigEnregistree(null);
-      setCleMasquee(null);
-      setCle('');
-      setTest(null);
-      setConfirmationEffacement(false);
-      setSucces('Configuration effacee. Ta cle a ete supprimee du backend.');
-    } catch (probleme) {
-      setErreur(probleme.message);
-    }
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Rendu
-  // -------------------------------------------------------------------------
-  if (loading || chargement) return <LoadingScreen message="Ouverture des parametres..." />;
-
-  // L'etape « adresse » n'existe que pour les fournisseurs locaux (changement
-  // de port) et pour l'adresse personnalisee. Quand elle est absente, tout ce
-  // qui suit avance d'un cran.
-  const adresseModifiable = Boolean(fournisseur && (fournisseur.local || !fournisseur.baseURL));
-  const numeroEtape = (rang) => (adresseModifiable ? rang + 1 : rang);
+  const fournisseurOuvert = ouvert ? fournisseurDe(ouvert) : null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header
-        user={user}
-        onLogout={logout}
-        breadcrumbs={[{ label: 'Tableau de bord', href: '/dashboard' }, { label: 'Parametres' }]}
-      />
+    <div className="space-y-8">
+      <Resume comptes={comptes} />
 
-      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 animate-fade-in">
-          <h1 className="font-display mb-2 text-3xl font-bold text-text-primary">
-            Ton modele, ton choix
-          </h1>
-          <p className="max-w-2xl leading-relaxed text-text-secondary">
-            Mew n&apos;impose aucun fournisseur. Choisis celui que tu veux — un modele qui tourne
-            sur ta machine, un service en ligne, ou n&apos;importe quelle autre adresse — et
-            apporte ta propre cle. Elle est enregistree par le backend, sur cette machine, et ne
-            repart jamais vers le navigateur.
-          </p>
+      {GROUPES.map((groupe) => {
+        const liste = fournisseurs.filter(groupe.filtre).filter(estVisible);
+        if (liste.length === 0) return null;
+
+        return (
+          <section key={groupe.cle}>
+            <h2 className="font-display mb-1 text-base font-bold text-text-primary">
+              {groupe.titre}
+            </h2>
+            <p className="mb-4 text-sm text-text-muted">{groupe.explication}</p>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {liste.map((fournisseur) => (
+                <CarteFournisseur
+                  key={fournisseur.id}
+                  fournisseur={fournisseur}
+                  compte={compteDe(fournisseur.id)}
+                  ouvert={ouvert === fournisseur.id}
+                  idPanneau={ID_PANNEAU}
+                  onOuvrir={setOuvert}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+
+      {(caches > 0 || toutVoir) && (
+        <div className="text-center">
+          <Button variant="outline" size="sm" onClick={() => setToutVoir((v) => !v)}>
+            {toutVoir
+              ? 'Ne montrer que les principaux'
+              : `Voir les ${caches} autres fournisseurs`}
+          </Button>
+          {!toutVoir && (
+            <p className="mt-2 text-xs text-text-muted">
+              Groq, Cerebras, Together, Fireworks, xAI, Moonshot, llama.cpp... Moins connus, pas
+              moins bons — certains ont un palier gratuit.
+            </p>
+          )}
         </div>
+      )}
 
-        {backendTropAncien ? (
-          <Alert variant="warning">
-            Ce backend Mew ne connait pas encore l&apos;ecran Parametres (route /api/ia absente).
-            Mets a jour le dossier backend/ puis relance-le avec{' '}
-            <code className="font-mono">cd backend &amp;&amp; npm run dev</code>.
-          </Alert>
-        ) : (
-          <div className="space-y-6">
-            {/* Quand backend/.env impose une cle, elle gagne sur tout ce qui
-                est choisi ici. Le taire serait le pire scenario : la personne
-                changerait de modele, lirait « enregistre », et rien ne
-                bougerait. */}
-            {catalogue && catalogue.etat && catalogue.etat.verrouilleParEnv && (
-              <Alert variant="warning">
-                {catalogue.etat.note
-                  || "Le moteur d'IA est impose par le fichier backend/.env de cette installation. "
-                  + "Retire OPENAI_API_KEY de ce fichier puis relance le serveur pour choisir toi-meme."}
-              </Alert>
-            )}
-
-            {erreur && <Alert variant="error" onClose={() => setErreur('')}>{erreur}</Alert>}
-            {succes && <Alert variant="success" onClose={() => setSucces('')}>{succes}</Alert>}
-
-            <Etape numero={1} titre="Chez qui tourne le modele ?">
-              <ChoixFournisseur
-                fournisseurs={fournisseurs}
-                valeur={idFournisseur}
-                onChange={choisirFournisseur}
-              />
-              {!idFournisseur && (
-                <p className="mt-4 text-sm text-text-muted">
-                  Tu hesites ? <strong className="text-text-secondary">Ollama</strong> ne coute rien
-                  et garde ton CV sur ton ordinateur. Pour la meilleure qualite de redaction, prends
-                  un fournisseur en ligne.
-                </p>
-              )}
-            </Etape>
-
-            {fournisseur && (
-              <>
-                {/* L'adresse n'est demandee que quand elle ne peut pas etre
-                    devinee. Les etapes suivantes se renumerotent donc toutes
-                    seules plutot que d'afficher un trou dans la suite. */}
-                {adresseModifiable && (
-                  <Etape numero={2} titre="L'adresse de l'API">
-                    <ChampAdresse fournisseur={fournisseur} valeur={baseURL} onChange={setBaseURL} />
-                  </Etape>
-                )}
-
-                <Etape
-                  numero={numeroEtape(2)}
-                  titre={fournisseur.cleRequise ? 'Ta cle API' : 'Une cle ? Pas forcement'}
-                >
-                  <ChampCle
-                    fournisseur={fournisseur}
-                    cleMasquee={cleMasquee}
-                    valeur={cle}
-                    onChange={setCle}
-                    visible={cleVisible}
-                    onBasculerVisibilite={() => setCleVisible((v) => !v)}
-                  />
-                </Etape>
-
-                <Etape numero={numeroEtape(3)} titre="Quel modele pour quoi ?">
-                  <ChoixModeles
-                    modeles={modelesDisponibles}
-                    valeurs={modeles}
-                    onChange={changerModele}
-                    listageDisponible={fournisseur.listageDynamique}
-                    listageEnCours={listageEnCours}
-                    listageErreur={listageErreur}
-                    onRecharger={rechargerModeles}
-                    origineListe={modelesDynamiques ? 'direct' : 'catalogue'}
-                  />
-                </Etape>
-
-                <Etape numero={numeroEtape(4)} titre="Essayer avant d'enregistrer">
-                  <p className="mb-4 text-sm text-text-secondary">
-                    Mew envoie une consigne courte au modele et regarde ce qui revient : la
-                    connexion, la cle, le modele, et surtout si la reponse respecte le format
-                    attendu. Rien n&apos;est enregistre a ce stade.
-                  </p>
-
-                  <div className="mb-4 flex flex-wrap gap-3">
-                    <Button variant="outline" onClick={lancerTest} loading={testEnCours}>
-                      Tester la connexion
-                    </Button>
-                  </div>
-
-                  <ResultatTest resultat={test} enCours={testEnCours} />
-                </Etape>
-
-                <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-surface p-6">
-                  <Button onClick={enregistrer} loading={enregistrementEnCours}>
-                    Enregistrer
-                  </Button>
-
-                  {manque && <span className="text-sm text-text-muted">{manque}</span>}
-
-                  {configEnregistree && (
-                    <div className="ml-auto flex items-center gap-2">
-                      {confirmationEffacement ? (
-                        <>
-                          <span className="text-sm text-text-secondary">Effacer la cle aussi ?</span>
-                          <Button variant="danger" size="sm" onClick={effacer}>
-                            Oui, tout effacer
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setConfirmationEffacement(false)}
-                          >
-                            Annuler
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setConfirmationEffacement(true)}
-                        >
-                          Effacer la configuration
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {catalogue && catalogue.verifieLe && (
-              <p className="text-center text-xs text-text-muted">
-                Tarifs du catalogue verifies le {catalogue.verifieLe}. Ils vieillissent vite : seul
-                le fournisseur fait foi.
-              </p>
-            )}
-          </div>
-        )}
-      </main>
+      {/* Le panneau s'ouvre SOUS la grille et non dans la carte : une carte qui
+          s'agrandit dans une grille pousse toutes ses voisines et fait sauter
+          la page sous les yeux de la personne. */}
+      {fournisseurOuvert && (
+        <PanneauCompte
+          // key : changer de fournisseur remonte le panneau a neuf, sinon une
+          // cle a moitie saisie ou un test reussi resterait affiche sous le
+          // fournisseur suivant.
+          key={fournisseurOuvert.id}
+          id={ID_PANNEAU}
+          fournisseur={fournisseurOuvert}
+          compte={compteDe(fournisseurOuvert.id)}
+          onFerme={() => setOuvert(null)}
+        />
+      )}
     </div>
   );
 }
 
-/** Une etape du parcours, dans son encadre numerote. */
-function Etape({ numero, titre, children }) {
-  return (
-    <section className="animate-fade-in rounded-2xl border border-border/60 bg-surface p-6">
-      <h2 className="font-display mb-5 flex items-center gap-3 text-lg font-bold text-text-primary">
-        <span
-          aria-hidden="true"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-light text-sm text-primary"
-        >
-          {numero}
-        </span>
-        {titre}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
 /**
- * La proposition de depart, pour ne pas laisser deux menus vides.
- *
- *   redaction  : le PREMIER modele du role dans le catalogue. Les entrees y
- *                sont rangees du meilleur au plus economique, donc le premier
- *                est le bon defaut pour « prends le meilleur ».
- *   extraction : le MOINS CHER du role, puisque personne ne lira ce texte.
+ * Ou j'en suis, en une ligne.
+ * Le lien vers l'onglet suivant n'apparait qu'une fois un acces enregistre :
+ * avant, il n'y a rien a y regler.
  */
-function modeleParDefaut(liste, role) {
-  const candidats = liste.filter((m) => m.roles.includes(role));
-  if (candidats.length === 0) return '';
+function Resume({ comptes }) {
+  const utilisables = comptes.filter((c) => c.utilisable).length;
 
-  if (role === 'redaction') return candidats[0].id;
+  if (utilisables === 0) {
+    return (
+      <div className="rounded-2xl border border-border/60 bg-surface-elevated p-5">
+        <p className="text-sm leading-relaxed text-text-secondary">
+          <strong className="text-text-primary">Aucun acces enregistre pour l&apos;instant.</strong>{' '}
+          Les scores, l&apos;analyse de ton CV et la recherche d&apos;offres fonctionnent deja sans
+          rien : ils sont calcules sur ta machine. Une cle ne sert qu&apos;aux textes rediges
+          (lettre, email, CV reformule).
+        </p>
+        <p className="mt-2 text-sm text-text-muted">
+          Tu hesites ? <strong className="text-text-secondary">Ollama</strong> ne coute rien et
+          garde ton CV sur ton ordinateur. Pour la meilleure qualite de redaction, prends un
+          fournisseur en ligne.
+        </p>
+      </div>
+    );
+  }
 
-  const moinsCher = candidats.reduce(
-    (meilleur, actuel) => ((actuel.entree ?? Infinity) < (meilleur.entree ?? Infinity) ? actuel : meilleur),
-    candidats[0]
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-success/20 bg-success/8 p-5">
+      <p className="text-sm text-text-secondary">
+        <strong className="text-text-primary">
+          {utilisables} acces {utilisables > 1 ? 'enregistres' : 'enregistre'}
+        </strong>
+        {utilisables > 1
+          ? ' — tu peux confier chaque tache a celui qui la fait le mieux.'
+          : ' — ajoutes-en d\'autres pour repartir les taches entre plusieurs modeles.'}
+      </p>
+      <Link
+        href="/parametres/outils"
+        className="text-sm font-semibold text-primary underline underline-offset-2 hover:text-primary-hover"
+      >
+        Regler les outils et les modeles
+      </Link>
+    </div>
   );
-  return moinsCher.id;
 }
