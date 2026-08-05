@@ -4,13 +4,14 @@
 
 ## Le projet en bref
 
-Boîte à outils **open source et locale** pour la recherche d'emploi. **Un seul univers : l'emploi.** 5 outils :
+Boîte à outils **open source et locale** pour la recherche d'emploi. **Un seul univers : l'emploi.** 4 outils :
 
 1. **Analyseur de CV** (`/solutions/analyse-cv`) — formulaire ou PDF → métiers correspondants
 2. **Optimiseur de CV** (`/solutions/optimiseur-cv`) — PDF → score ATS + CV optimisé (texte, avant/après)
 3. **Matcher d'Offres** (`/solutions/matcher-offres`) — 3 modes : adapter le CV à une offre (URL scrapée ou saisie manuelle), mode Rapide (CV PDF + URL), mode Découverte (CV PDF → métiers + offres WTTJ/France Travail)
-4. **Candidature Spontanée** (`/solutions/candidature-spontanee`) — génère ET envoie l'email avec CV en pièce jointe
-5. **Suivi de Candidatures** (`/solutions/matcher-offres/candidatures`) — tracker CRUD (statuts : `a_postuler | postule | entretien | offre | refuse`)
+4. **Candidature Spontanée** (`/solutions/candidature-spontanee`) — génère ET envoie l'email avec CV en pièce jointe, puis rappelle de relancer
+
+> **Le tracker manuel a été retiré** (4 août 2026) : personne ne tient à jour un tableau de suivi, et les plateformes de recrutement le font déjà pour ce qui part de chez elles. Ce qu'aucune ne suit, c'est une candidature spontanée envoyée par email — Mew l'enregistre donc **tout seul** au moment de l'envoi, et affiche « X relances à faire ». `applicationService` existe toujours, mais n'est plus exposé en HTTP : seule `GET /api/applications/user/:userId/statistiques` subsiste, en lecture.
 
 Tout est en **mode texte** : l'IA retourne du texte/JSON structuré, aucune génération de PDF.
 

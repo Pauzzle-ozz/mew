@@ -20,6 +20,7 @@ import {
   generateFollowUp,
   markFollowUpSent,
 } from '@/lib/api/candidatureSpontaneeApi';
+import { getRelancesAFaire } from '@/lib/api/applicationsApi';
 
 const STEPS = [
   { n: 1, label: 'Saisie' },
@@ -28,6 +29,53 @@ const STEPS = [
 ];
 
 const EMAIL_VALIDE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Bandeau des relances a faire.
+ *
+ * C'est la reponse a « ou retrouve-t-on la date de relance apres avoir quitte
+ * l'ecran de confirmation ? ». La date etait ecrite en base depuis toujours,
+ * mais plus aucun ecran ne la montrait : rendre la relance gratuite ne sert a
+ * rien si personne ne peut la retrouver.
+ *
+ * Seules les candidatures spontanees envoyees par Mew apparaissent ici. C'est
+ * volontaire : ce sont les seules qu'aucune plateforme de recrutement ne suit.
+ */
+function BandeauRelances({ relances }) {
+  if (!relances || relances.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="mb-6 rounded-2xl border border-warning/25 bg-warning/8 p-4"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <IconClock className="h-4 w-4 text-warning" />
+        <p className="text-sm font-semibold text-text-primary">
+          {relances.length === 1
+            ? '1 relance a faire'
+            : `${relances.length} relances a faire`}
+        </p>
+      </div>
+      <ul className="space-y-1">
+        {relances.slice(0, 5).map((relance) => (
+          <li key={relance.candidature.id} className="text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">
+              {relance.candidature.offer_title}
+            </span>
+            {relance.candidature.company ? ` chez ${relance.candidature.company}` : ''}
+            {' — envoyee il y a '}
+            {relance.joursDepuisEnvoi} jour{relance.joursDepuisEnvoi > 1 ? 's' : ''}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-text-muted">
+        Renvoie ta candidature depuis le formulaire ci-dessous : Mew reecrira un
+        message de relance adapte.
+      </p>
+    </div>
+  );
+}
 
 export default function CandidatureSpontaneePage() {
   const { user, loading, logout } = useAuth();
@@ -52,13 +100,24 @@ export default function CandidatureSpontaneePage() {
   const [followUpDraft, setFollowUpDraft] = useState(null);
   const [generatingFollowUp, setGeneratingFollowUp] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [relances, setRelances] = useState([]);
 
   const idBase = useId();
   const champ = (nom) => `${idBase}-${nom}`;
 
   useEffect(() => {
     getUser().then((utilisateur) => {
-      setUserId(utilisateur?.id || null);
+      const id = utilisateur?.id || null;
+      setUserId(id);
+
+      // Les relances en attente. C'est un BONUS : si la route n'existe pas ou
+      // si l'appel echoue, on n'affiche simplement rien plutot que de casser
+      // la page pour un encart.
+      if (id) {
+        getRelancesAFaire(id)
+          .then((donnees) => setRelances(donnees?.relancesAFaire || []))
+          .catch(() => setRelances([]));
+      }
       // Pre-remplissage de l'email de reponse par celui du compte : dans la
       // quasi-totalite des cas c'est la bonne adresse, et un champ deja rempli
       // est un champ qu'on ne laisse pas vide par distraction. Il reste
@@ -190,17 +249,11 @@ export default function CandidatureSpontaneePage() {
         user={user}
         onLogout={logout}
         breadcrumbs={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Candidature spontanee' }]}
-        actions={
-          <Link
-            href="/solutions/matcher-offres/candidatures"
-            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-light text-primary text-xs font-semibold hover:bg-primary/15 transition-colors"
-          >
-            Mes candidatures
-          </Link>
-        }
       />
 
       <div className="max-w-2xl mx-auto px-4 py-8">
+        <BandeauRelances relances={relances} />
+
         {/* Stepper */}
         <ol className="flex items-center justify-center gap-2 mb-8">
           {STEPS.map((s, i) => (
@@ -472,13 +525,7 @@ export default function CandidatureSpontaneePage() {
                     on le dit ici, sinon la relance disparait des qu'on quitte
                     cet ecran et personne ne sait ou la retrouver. */}
                 <p className="text-xs text-text-secondary">
-                  Elle apparaitra automatiquement dans{' '}
-                  <Link
-                    href="/solutions/matcher-offres/candidatures"
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    Mes candidatures
-                  </Link>{' '}
+                  Elle apparaitra automatiquement dans{' '}{' '}
                   le jour venu. Rien a noter dans un agenda.
                 </p>
 
@@ -523,11 +570,6 @@ export default function CandidatureSpontaneePage() {
               <Button variant="outline" onClick={handleReset} className="flex-1">
                 Nouvelle candidature
               </Button>
-              <Link href="/solutions/matcher-offres/candidatures" className="flex-1">
-                <Button variant="primary" className="w-full">
-                  Voir mes candidatures
-                </Button>
-              </Link>
             </div>
           </div>
         )}

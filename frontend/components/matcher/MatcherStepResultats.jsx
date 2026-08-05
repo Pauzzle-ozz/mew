@@ -29,8 +29,6 @@ export default function MatcherStepResultats({
   cvDataOriginal,
   cvDataOptimized,
   coverLetterResult,
-  applicationSaved,
-  onSauvegarderCandidature,
   error,
   onModifier,
   onRecommencer,
@@ -108,30 +106,6 @@ export default function MatcherStepResultats({
           <div className="rounded-xl border border-border/60 bg-surface p-3">
             <p className="whitespace-pre-line text-sm leading-relaxed text-text-secondary">{lettre}</p>
           </div>
-        </div>
-      )}
-
-      {/* ── Suivi de candidature ────────────────────────────────── */}
-      {applicationSaved ? (
-        <div className="rounded-2xl border border-success/25 bg-success/8 p-4 text-center">
-          <div className="mb-1 flex items-center justify-center gap-2">
-            <IconCheckCircle className="h-5 w-5 text-success" />
-            <p className="text-sm text-success">Candidature ajoutee au suivi</p>
-          </div>
-          <Link
-            href="/solutions/matcher-offres/candidatures"
-            className="text-xs text-success underline underline-offset-2 hover:opacity-80"
-          >
-            Voir mes candidatures &rarr;
-          </Link>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-border/60 bg-surface p-5">
-          <h3 className="font-display text-sm font-semibold text-text-primary">Suivre cette candidature</h3>
-          <p className="mb-3 text-xs text-text-muted">Ajoute-la a ton tableau de suivi pour ne pas la perdre de vue.</p>
-          <Button variant="outline" size="md" onClick={onSauvegarderCandidature} className="w-full">
-            Ajouter au suivi &rarr;
-          </Button>
         </div>
       )}
 

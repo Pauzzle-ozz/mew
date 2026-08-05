@@ -11,7 +11,6 @@ import {
   SparkleIcon,
   TargetIcon,
   MailIcon,
-  ClipboardIcon,
   IconArrowRight,
 } from '@/components/shared/icons'
 
@@ -55,14 +54,6 @@ const OUTILS = [
     tags: ['Email', 'CV joint'],
     icone: MailIcon,
     requiert: ['ia', 'envoiEmail'],
-  },
-  {
-    href: '/solutions/matcher-offres/candidatures',
-    titre: 'Suivi de Candidatures',
-    description: 'Vos candidatures, leur statut et les relances a faire',
-    tags: ['Tracker', 'Relances'],
-    icone: ClipboardIcon,
-    requiert: [],
   },
 ]
 
@@ -124,7 +115,7 @@ export default function DashboardPage() {
         <div className="rounded-2xl bg-gradient-to-r from-orange-500/8 to-amber-500/4 p-8 mb-8 animate-fade-in">
           <h1 className="font-display text-3xl font-bold text-text-primary mb-2">Recherche d&apos;emploi</h1>
           <p className="text-text-secondary">
-            Cinq outils pour avancer sur vos candidatures. Tout tourne sur votre machine.
+            Quatre outils pour avancer sur vos candidatures. Tout tourne sur votre machine.
           </p>
 
           <ResumeCapacites capacites={capacites} />

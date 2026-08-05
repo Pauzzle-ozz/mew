@@ -17,15 +17,14 @@ Mew part du principe inverse :
 
 Concrètement : un score ATS obtenu deux fois sur le même CV donne deux fois le même résultat, et on peut vous montrer le détail du calcul, critère par critère.
 
-## Les 5 outils
+## Les 4 outils
 
 | Outil | Ce qu'il fait |
 |---|---|
 | **Analyseur de CV** | Lit votre CV (PDF ou formulaire) et propose les métiers qui correspondent à votre profil |
 | **Optimiseur de CV** | Note votre CV face aux logiciels de tri des recruteurs (ATS) et liste ce qu'il faut corriger |
 | **Matcher d'offres** | Adapte votre CV à une offre précise, et découvre des offres qui vous correspondent |
-| **Candidature spontanée** | Rédige un email d'approche et l'envoie avec votre CV en pièce jointe |
-| **Suivi de candidatures** | Vos candidatures, leur statut, et les relances à faire |
+| **Candidature spontanée** | Rédige un email d'approche, l'envoie avec votre CV en pièce jointe, et vous rappelle de relancer |
 
 ## Choisissez votre fournisseur et votre modèle
 
@@ -289,7 +288,7 @@ Les sorties structurées passent par des **marqueurs texte découpés en JavaScr
 | POST | `/api/candidature-spontanee/envoyer` | Rédiger et envoyer |
 | POST | `/api/candidature-spontanee/generer-relance` | Rédiger une relance |
 | PUT | `/api/candidature-spontanee/:id/relance-envoyee` | Marquer la relance faite |
-| POST · GET · PUT · DELETE | `/api/applications` · `/user/:userId` · `/:id` · `/:id` | Suivi des candidatures |
+| GET | `/api/applications/user/:userId/statistiques` | Relances à faire sur les candidatures spontanées |
 | POST · GET · DELETE | `/api/historique/sauvegarder` · `/:userId` · `/:entryId` | Historique des outils |
 
 Les routes qui appellent le modèle sont limitées à 200 requêtes par quart d'heure (réglable avec `AI_RATE_LIMIT_MAX`, `0` pour désactiver).

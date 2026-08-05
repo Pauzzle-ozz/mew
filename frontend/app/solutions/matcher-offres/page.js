@@ -21,7 +21,6 @@ import { IconClipboard, IconClock, IconTarget } from '@/components/shared/icons'
 // APIs
 import { analyzeOffer, analyzeScrapedOffer, generateComplete, extractCandidateFromCVFile } from '@/lib/api/matcherApi';
 import { saveHistoryEntry } from '@/lib/api/historyApi';
-import { createApplication } from '@/lib/api/applicationsApi';
 
 /**
  * Matcher d'offres.
@@ -113,7 +112,6 @@ export default function MatcherOffresPage() {
   const [coverLetterResult, setCoverLetterResult] = useState(null);
 
   // ── Candidature ───────────────────────────────────────────────────
-  const [applicationSaved, setApplicationSaved] = useState(false);
   const [userId, setUserId] = useState(null);
 
   useEffect(() => {
@@ -138,7 +136,6 @@ export default function MatcherOffresPage() {
     setCorrespondance(null);
     setModifications([]);
     setCoverLetterResult(null);
-    setApplicationSaved(false);
   };
 
   /** Mode decouverte : on a clique sur « remplir le formulaire » depuis une offre trouvee. */
@@ -275,23 +272,6 @@ export default function MatcherOffresPage() {
     }
   };
 
-  const handleSaveApplication = async () => {
-    if (!userId) return;
-    try {
-      await createApplication(userId, {
-        offer_title: offerData.title || cvDataOptimized?.titre_poste || 'Candidature',
-        company: offerData.company || '',
-        offer_url: offerUrl || scrapedData?.url || '',
-        location: offerData.location || '',
-        contract_type: offerData.contract_type || '',
-        status: 'a_postuler',
-      });
-      setApplicationSaved(true);
-    } catch (err) {
-      setError(err.message || 'Impossible d\'ajouter cette candidature au suivi');
-    }
-  };
-
   if (loading) return <LoadingScreen message="Chargement du matcher..." />;
 
   return (
@@ -306,13 +286,6 @@ export default function MatcherOffresPage() {
               <IconClock className="h-4 w-4" />
               Historique
             </Button>
-            <Link
-              href="/solutions/matcher-offres/candidatures"
-              className="hidden items-center gap-2 rounded-full bg-primary-light px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/15 sm:flex"
-            >
-              <IconClipboard className="h-4 w-4" />
-              <span>Mes candidatures</span>
-            </Link>
           </div>
         }
       />
@@ -336,12 +309,6 @@ export default function MatcherOffresPage() {
 
             {matcherMode && (
               <div className="mt-3 flex justify-center gap-4">
-                <Link
-                  href="/solutions/matcher-offres/candidatures"
-                  className="text-xs text-text-muted underline underline-offset-2 transition-colors hover:text-text-secondary"
-                >
-                  Mes candidatures &rarr;
-                </Link>
                 <button
                   type="button"
                   onClick={handleReset}
@@ -407,8 +374,6 @@ export default function MatcherOffresPage() {
               cvDataOriginal={cvDataOriginal}
               cvDataOptimized={cvDataOptimized}
               coverLetterResult={coverLetterResult}
-              applicationSaved={applicationSaved}
-              onSauvegarderCandidature={handleSaveApplication}
               error={error}
               onModifier={() => setStep(1)}
               onRecommencer={handleReset}
