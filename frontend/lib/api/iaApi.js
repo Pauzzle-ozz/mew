@@ -1,88 +1,54 @@
 /**
- * Appels backend de l'ecran Parametres : le choix du fournisseur de modele.
+ * Appels backend de l'espace Parametres : le choix des fournisseurs et des
+ * modeles.
  *
  * POURQUOI CE FICHIER EXISTE
  * Regle du projet : aucune page ne fait `fetch` elle-meme. Tout passe par
  * lib/api/, qui traduit les pannes en phrases lisibles (lireReponse et
- * messageErreurReseau de ./config).
+ * messageErreurReseau de ./config). La mise en forme des reponses, elle, vit
+ * dans ./iaNormalisation.js.
  *
  * DEUX PRECAUTIONS PROPRES A CET ECRAN
  *
- * 1. LES ROUTES PEUVENT NE PAS EXISTER. Les routes /api/ia sont recentes :
- *    quelqu'un qui tourne avec un backend plus ancien recevra un 404. Un 404
- *    sur une LECTURE n'est pas une panne, c'est « ce backend ne sait pas
- *    encore faire » : on renvoie null et la page l'explique. Un 404 sur une
- *    ECRITURE leve, avec la marche a suivre.
+ * 1. LES ROUTES PEUVENT NE PAS EXISTER. Quelqu'un qui tourne avec un backend
+ *    plus ancien recevra un 404. Un 404 sur une LECTURE n'est pas une panne,
+ *    c'est « ce backend ne sait pas encore faire » : on renvoie null et la page
+ *    l'explique. Un 404 sur une ECRITURE leve, avec la marche a suivre.
  *
- * 2. LA CLE NE REDESCEND JAMAIS EN CLAIR. Le backend est cense n'envoyer
- *    qu'une version masquee (« sk-...4f2a »). On ne lui fait quand meme pas
- *    aveuglement confiance : masquerParPrudence() re-masque tout ce qui
- *    arriverait entier. Et la cle n'est JAMAIS mise en parametre d'URL, meme
- *    pour lister des modeles : une adresse finit dans les journaux du serveur,
- *    l'historique du navigateur et les traces de proxy. Elle ne voyage que
- *    dans un corps de requete.
- *
- * FORME DES REPONSES
- * Les fonctions ci-dessous suivent backend/src/routes/ia.js, mais elles
- * NORMALISENT ce qu'elles recoivent plutot que d'exiger un champ precis :
- * elles acceptent plusieurs ecritures plausibles d'un meme renseignement
- * (`cleApi` masquee ou `cleMasquee`, `coutEstime` ou `cout`, tableau nu ou
- * objet enveloppe). Une difference de nommage entre les deux moities du
- * projet doit couter un champ manquant, jamais un ecran vide.
+ * 2. LA CLE NE REDESCEND JAMAIS EN CLAIR, et elle ne monte JAMAIS dans une
+ *    URL — meme pour lister des modeles. Une adresse finit dans les journaux
+ *    du serveur, l'historique du navigateur et les traces de proxy. La cle ne
+ *    voyage que dans un corps de requete.
  */
 
 import { API_URL, lireReponse, messageErreurReseau } from './config';
+import {
+  texte,
+  normaliserModele,
+  normaliserFournisseur,
+  normaliserOutil,
+  normaliserTache,
+  normaliserSource,
+  normaliserEtat,
+  normaliserTest,
+} from './iaNormalisation';
 
 const BASE_IA = `${API_URL}/api/ia`;
 
 /** Les deux roles du projet, si le backend ne les annonce pas lui-meme. */
-export const ROLES = ['redaction', 'extraction'];
+const ROLES = ['redaction', 'extraction'];
 
 /**
  * Ce que le backend a repondu quand la route n'existe pas encore.
  * Message unique : il est affiche tel quel a l'utilisateur.
  */
 const MESSAGE_ROUTE_ABSENTE =
-  "Ce backend Mew ne connait pas encore l'ecran Parametres (route /api/ia absente). "
+  "Ce backend Mew ne connait pas encore l'espace Parametres (route /api/ia absente). "
   + 'Mets a jour le dossier backend/ puis relance `cd backend && npm run dev`.';
 
-// ---------------------------------------------------------------------------
-// Petits convertisseurs
-// ---------------------------------------------------------------------------
-
-/** Chaine non vide, ou null. Evite les « undefined » affiches dans l'interface. */
-const texte = (valeur) => (typeof valeur === 'string' && valeur.trim() !== '' ? valeur.trim() : null);
-
-/** Nombre fini, ou null. Un prix absent ne doit pas devenir NaN a l'ecran. */
-const nombre = (valeur) => {
-  const n = Number(valeur);
-  return Number.isFinite(n) ? n : null;
-};
-
-/**
- * Re-masque une cle qui arriverait entiere.
- *
- * Le backend masque deja. Ce filet sert au cas ou : une cle affichee en clair
- * dans une page ouverte au bureau, c'est une cle compromise. On garde le debut
- * (il identifie le fournisseur) et la fin (il identifie la cle), on efface le
- * milieu.
- */
-function masquerParPrudence(valeur) {
-  const brut = texte(valeur);
-  if (!brut) return null;
-
-  // Deja masquee par le backend : on n'y touche pas.
-  if (/\.\.\.|…|\*{2,}|•{2,}/.test(brut)) return brut;
-
-  // Trop courte pour etre une vraie cle : probablement deja un resume.
-  if (brut.length <= 12) return brut;
-
-  return `${brut.slice(0, 5)}...${brut.slice(-4)}`;
-}
-
-// ---------------------------------------------------------------------------
-// Le transport
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Le transport                                                        */
+/* ------------------------------------------------------------------ */
 
 /**
  * Enveloppe commune : traduit la panne reseau, deballe { success, data }.
@@ -120,71 +86,20 @@ const enJson = (corps) => ({
   body: JSON.stringify(corps),
 });
 
-// ---------------------------------------------------------------------------
-// Normalisation du catalogue
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Le catalogue                                                        */
+/* ------------------------------------------------------------------ */
 
 /**
- * Un modele du catalogue, dans la forme attendue par l'interface.
- * `entree`, `sortie` et `contexte` valent null quand on ne les connait pas :
- * c'est le cas des modeles decouverts en direct chez Ollama ou OpenRouter.
- * L'interface affiche alors « tarif inconnu » plutot qu'un faux zero.
- */
-function normaliserModele(brut) {
-  if (!brut) return null;
-
-  // Le listage en direct peut renvoyer une simple liste de chaines.
-  if (typeof brut === 'string') {
-    return { id: brut, nom: brut, entree: null, sortie: null, contexte: null, roles: [] };
-  }
-
-  const id = texte(brut.id) || texte(brut.modele) || texte(brut.name);
-  if (!id) return null;
-
-  return {
-    id,
-    nom: texte(brut.nom) || texte(brut.name) || id,
-    entree: nombre(brut.entree),
-    sortie: nombre(brut.sortie),
-    contexte: nombre(brut.contexte),
-    roles: Array.isArray(brut.roles) ? brut.roles.filter((r) => typeof r === 'string') : [],
-  };
-}
-
-function normaliserFournisseur(brut) {
-  const id = texte(brut && brut.id);
-  if (!id) return null;
-
-  return {
-    id,
-    nom: texte(brut.nom) || id,
-    adaptateur: texte(brut.adaptateur) || 'openai-compatible',
-    baseURL: texte(brut.baseURL) || texte(brut.baseUrl),
-    // Par defaut on suppose qu'une cle est demandee : c'est le cas le plus
-    // frequent, et se tromper dans ce sens fait au pire afficher un champ
-    // inutile, alors que l'inverse cacherait un champ indispensable.
-    cleRequise: brut.cleRequise !== false,
-    urlCle: texte(brut.urlCle),
-    prefixeCle: texte(brut.prefixeCle),
-    local: brut.local === true,
-    paliergratuit: brut.paliergratuit === true || brut.palierGratuit === true,
-    listageDynamique: brut.listageDynamique === true,
-    note: texte(brut.note) || '',
-    modeles: (Array.isArray(brut.modeles) ? brut.modeles : []).map(normaliserModele).filter(Boolean),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Les six appels
-// ---------------------------------------------------------------------------
-
-/**
- * Le catalogue des fournisseurs.
+ * Tout ce qu'il faut pour construire l'espace Parametres, en un appel : les
+ * fournisseurs avec leur guide, les outils de Mew, et les taches confiees a un
+ * modele.
  *
- * @returns {Promise<{fournisseurs: Array, roles: Array<string>, verifieLe: string|null}|null>}
+ * @returns {Promise<{fournisseurs: Array, outils: Array, taches: Array,
+ *   roles: Array<string>, verifieLe: string|null, source: object|null}|null>}
  *   null si le backend ne connait pas encore /api/ia.
  */
-export async function getFournisseurs() {
+export async function getCatalogue() {
   const data = await appeler(
     `${BASE_IA}/fournisseurs`,
     undefined,
@@ -199,127 +114,95 @@ export async function getFournisseurs() {
 
   return {
     fournisseurs: liste.map(normaliserFournisseur).filter(Boolean),
+    outils: (Array.isArray(data.outils) ? data.outils : []).map(normaliserOutil).filter(Boolean),
+    taches: (Array.isArray(data.taches) ? data.taches : []).map(normaliserTache).filter(Boolean),
     roles: Array.isArray(data.roles) && data.roles.length > 0 ? data.roles : ROLES,
     verifieLe: texte(data && data.verifieLe),
-    etat: normaliserEtat(data && data.etat),
+    source: normaliserSource(data && data.etat),
   };
 }
 
-/**
- * D'ou vient la configuration reellement utilisee par le backend.
- *
- * `verrouilleParEnv` est le champ important : quand backend/.env impose une
- * cle, tout ce que l'utilisateur enregistre ici reste sans effet. Le lui
- * cacher serait le pire des scenarios — il changerait de modele, verrait
- * « enregistre », et rien ne bougerait.
- */
-function normaliserEtat(brut) {
-  if (!brut || typeof brut !== 'object') return null;
-
-  return {
-    source: texte(brut.source),                 // 'env' | 'fichier' | 'aucune'
-    verrouilleParEnv: brut.verrouilleParEnv === true,
-    active: brut.active === true,
-    note: texte(brut.note),
-  };
-}
+/* ------------------------------------------------------------------ */
+/* L'etat enregistre                                                   */
+/* ------------------------------------------------------------------ */
 
 /**
- * La configuration enregistree.
- *
- * @returns {Promise<object|null>} null si rien n'est configure OU si la route
- *   n'existe pas : dans les deux cas l'interface part d'un formulaire vierge.
+ * Les acces enregistres et l'affectation des taches.
+ * @returns {Promise<object|null>} null si la route n'existe pas : l'interface
+ *   part alors d'un ecran vierge plutot que d'afficher une panne.
  */
-export async function getConfig() {
+export async function getEtat() {
   const data = await appeler(
-    `${BASE_IA}/config`,
+    `${BASE_IA}/etat`,
     undefined,
-    'Impossible de lire la configuration',
+    "Impossible de lire l'etat des reglages",
     { tolerer404: true }
   );
-  if (!data || typeof data !== 'object') return null;
-
-  const modeles = data.modeles && typeof data.modeles === 'object' ? data.modeles : {};
-
-  // Le backend renvoie la cle DEJA masquee dans le champ `cleApi`
-  // (configUtilisateur.lireMasquee). masquerParPrudence la laisse telle quelle
-  // et ne se declenche que si une cle entiere arrivait un jour par accident.
-  const cleMasquee = masquerParPrudence(
-    data.cleMasquee || data.cleApiMasquee || data.cleApi || data.cle
-  );
-
-  return {
-    fournisseur: texte(data.fournisseur) || texte(data.idFournisseur),
-    baseURL: texte(data.baseURL) || texte(data.baseUrl),
-    modeleRedaction: texte(modeles.redaction) || texte(data.modeleRedaction),
-    modeleExtraction: texte(modeles.extraction) || texte(data.modeleExtraction),
-    cleMasquee,
-    // Une cle peut etre enregistree sans que le backend en renvoie un apercu :
-    // on accepte les differentes facons de le dire.
-    cleEnregistree: data.aUneCle === true
-      || data.cleEnregistree === true
-      || data.clePresente === true
-      || Boolean(cleMasquee),
-    // « configure » = un fournisseur connu, au moins un modele, et une cle si
-    // ce fournisseur en exige une. Une configuration a moitie remplie vaut
-    // false.
-    configure: data.configure === true,
-    etat: normaliserEtat(data.etat),
-  };
+  return data ? normaliserEtat(data) : null;
 }
 
 /**
- * Enregistre la configuration.
+ * Enregistre ou met a jour UN acces.
  *
- * @param {object} config
- * @param {string} config.fournisseur
- * @param {string|null} config.baseURL      adresse personnalisee, ou null
- * @param {string|null} config.cleApi       LA NOUVELLE cle, ou null pour
- *   conserver celle deja enregistree. On n'envoie jamais la version masquee :
- *   elle ecraserait la vraie cle par « sk-...4f2a ».
- * @param {string|null} config.modeleRedaction
- * @param {string|null} config.modeleExtraction
+ * @param {string} fournisseur
+ * @param {{cleApi?: string|null, baseURL?: string|null}} acces
+ *   `cleApi` a null ou vide veut dire « garde la cle deja enregistree » : on
+ *   n'envoie jamais la version masquee, elle ecraserait la vraie cle.
+ * @returns {Promise<object>} l'etat complet, tel que le backend le voit
  */
-export async function enregistrerConfig({
-  fournisseur,
-  baseURL = null,
-  cleApi = null,
-  modeleRedaction = null,
-  modeleExtraction = null,
-}) {
-  const corps = {
-    fournisseur,
-    baseURL,
-    // Les deux ecritures sont envoyees volontairement : l'imbriquee suit le
-    // vocabulaire des roles, les plates sont l'ecriture la plus courante cote
-    // Express. Un champ en trop est ignore par le backend, un champ manquant
-    // ferait perdre le choix de l'utilisateur sans qu'il comprenne pourquoi.
-    modeles: { redaction: modeleRedaction, extraction: modeleExtraction },
-    modeleRedaction,
-    modeleExtraction,
-  };
-
-  // La cle n'est ajoutee au corps QUE si l'utilisateur en a saisi une nouvelle.
-  // Cote backend, une cle absente veut dire « garde celle deja enregistree ».
+export async function enregistrerCompte(fournisseur, { cleApi = null, baseURL = null } = {}) {
+  const corps = {};
   if (texte(cleApi)) corps.cleApi = cleApi.trim();
+  if (texte(baseURL)) corps.baseURL = baseURL.trim();
 
   const data = await appeler(
-    `${BASE_IA}/config`,
+    `${BASE_IA}/comptes/${encodeURIComponent(fournisseur)}`,
     { method: 'PUT', ...enJson(corps) },
-    "Impossible d'enregistrer la configuration"
+    "Impossible d'enregistrer cet acces"
   );
-
-  // Le backend accepte des configurations imparfaites (modele absent du
-  // catalogue, prefixe de cle inhabituel) et le signale plutot que de refuser.
-  // Ces remarques doivent remonter jusqu'a l'utilisateur.
-  return {
-    avertissements: (Array.isArray(data && data.avertissements) ? data.avertissements : [])
-      .map(texte)
-      .filter(Boolean),
-  };
+  return normaliserEtat(data);
 }
 
-/** Efface la configuration enregistree (cle comprise). */
+/** Retire un acces, cle comprise. @returns {Promise<object>} l'etat complet */
+export async function supprimerCompte(fournisseur) {
+  const data = await appeler(
+    `${BASE_IA}/comptes/${encodeURIComponent(fournisseur)}`,
+    { method: 'DELETE' },
+    'Impossible de retirer cet acces'
+  );
+  return normaliserEtat(data);
+}
+
+/**
+ * Enregistre « quelle tache, allumee ou non, quel modele de quel compte ».
+ *
+ * L'etat COMPLET est envoye, pas un fragment : le backend remet a leur valeur
+ * par defaut les taches absentes du corps. Envoyer un fragment rendrait
+ * impossible de rallumer une tache coupee.
+ *
+ * @param {object} taches { [idTache]: { actif, fournisseur, modele } }
+ * @returns {Promise<object>} l'etat complet
+ */
+export async function enregistrerTaches(taches) {
+  const propre = {};
+  Object.keys(taches || {}).forEach((id) => {
+    const reglage = taches[id] || {};
+    propre[id] = {
+      actif: reglage.actif !== false,
+      fournisseur: texte(reglage.fournisseur) || '',
+      modele: texte(reglage.modele) || '',
+    };
+  });
+
+  const data = await appeler(
+    `${BASE_IA}/taches`,
+    { method: 'PUT', ...enJson({ taches: propre }) },
+    "Impossible d'enregistrer l'affectation des taches"
+  );
+  return normaliserEtat(data);
+}
+
+/** Efface TOUT : tous les acces, toutes les cles, toute l'affectation. */
 export async function supprimerConfig() {
   return appeler(
     `${BASE_IA}/config`,
@@ -327,6 +210,10 @@ export async function supprimerConfig() {
     'Impossible de supprimer la configuration'
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Les modeles reellement disponibles                                  */
+/* ------------------------------------------------------------------ */
 
 /**
  * Les modeles reellement disponibles chez un fournisseur.
@@ -338,10 +225,8 @@ export async function supprimerConfig() {
  * DEUX METHODES, ET C'EST LA CLE QUI DECIDE
  *   sans cle a transmettre  -> GET, le backend utilise celle qu'il a deja.
  *   avec une cle fraiche    -> POST, la cle voyage dans le CORPS.
- * Une cle n'a rien a faire dans une URL : elle finirait dans les journaux du
- * serveur, l'historique du navigateur et les traces de proxy. C'est ce qui
- * permet de coller sa cle et de voir aussitot les modeles, avant d'enregistrer
- * quoi que ce soit.
+ * C'est ce qui permet de coller sa cle et de voir aussitot les modeles, avant
+ * d'enregistrer quoi que ce soit.
  *
  * @returns {Promise<{modeles: Array|null, source: string|null}|null>}
  *   `modeles` a null = ce fournisseur ne sait pas lister ; le catalogue fait
@@ -374,30 +259,25 @@ export async function getModeles(idFournisseur, { baseURL = null, cleApi = null 
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Le test                                                             */
+/* ------------------------------------------------------------------ */
+
 /**
- * Essaie la configuration AVANT de l'enregistrer.
+ * Essaie un acces AVANT de l'enregistrer.
  *
  * CETTE FONCTION NE LEVE JAMAIS. Un test qui echoue n'est pas un bug de
  * l'application : c'est precisement son resultat, et il doit s'afficher dans
  * le meme encadre que le succes. Tout est donc traduit en objet resultat, y
  * compris un backend eteint (code RESEAU).
- *
- * @returns {Promise<{
- *   ok: boolean, etape: string|null, suitLesConsignes: boolean,
- *   latenceMs: number|null, cout: {eur: number|null, usd: number|null}|null,
- *   usage: {tokensEntree: number|null, tokensSortie: number|null}|null,
- *   modele: string|null, avertissement: string|null,
- *   message: string|null, code: string|null
- * }>}
  */
 export async function testerConnexion({
   fournisseur,
   baseURL = null,
   cleApi = null,
   modele = null,
-  role = 'redaction',
 }) {
-  const corps = { fournisseur, baseURL, modele, role };
+  const corps = { fournisseur, baseURL, modele };
   if (texte(cleApi)) corps.cleApi = cleApi.trim();
 
   try {
@@ -426,45 +306,10 @@ export async function testerConnexion({
   }
 }
 
-/** Met la reponse du test dans une forme unique, quelle que soit son ecriture. */
-function normaliserTest(data, okParDefaut) {
-  const brut = data && typeof data === 'object' ? data : {};
-
-  // Un avertissement peut arriver seul ou en liste (« format non respecte »,
-  // « le modele a ajoute du texte autour »...).
-  const avertissements = []
-    .concat(brut.avertissement || [], brut.avertissements || [])
-    .map(texte)
-    .filter(Boolean);
-
-  // Le backend nomme ce champ `coutEstime` (testConnexion.js) ; `cout` est
-  // accepte au cas ou il serait renomme un jour.
-  const brutCout = brut.coutEstime || brut.cout;
-  const cout = brutCout && typeof brutCout === 'object'
-    ? { eur: nombre(brutCout.eur), usd: nombre(brutCout.usd) }
-    : null;
-
-  const usage = brut.usage && typeof brut.usage === 'object'
-    ? {
-      tokensEntree: nombre(brut.usage.tokensEntree ?? brut.usage.prompt_tokens),
-      tokensSortie: nombre(brut.usage.tokensSortie ?? brut.usage.completion_tokens),
-    }
-    : null;
-
-  return {
-    ok: brut.ok === undefined ? okParDefaut !== false : brut.ok === true,
-    // Jusqu'ou le test est alle : 'connexion', 'authentification', 'format'.
-    etape: texte(brut.etape),
-    // LE champ decisif quand ok vaut true : le modele a repondu, mais a-t-il
-    // respecte le format que Mew lui demande ? Un « non » ne bloque rien, il
-    // annonce des lettres mal decoupees. Absent = on ne suppose pas le pire.
-    suitLesConsignes: brut.suitLesConsignes !== false,
-    latenceMs: nombre(brut.latenceMs ?? brut.latence ?? brut.dureeMs),
-    cout,
-    usage,
-    modele: texte(brut.modele),
-    avertissement: avertissements.length > 0 ? avertissements.join(' ') : null,
-    message: texte(brut.message) || texte(brut.erreur),
-    code: texte(brut.code),
-  };
-}
+/*
+ * L'ANCIENNE FORME (`GET·PUT /api/ia/config`, un fournisseur et deux modeles
+ * par role) n'a plus de client ici : l'espace Parametres raisonne desormais en
+ * comptes et en taches. La route existe toujours cote backend — elle documente
+ * le cas simple et des tests garantissent qu'elle ne laisse pas fuir de cle —
+ * mais ecrire ici une fonction que personne n'appelle serait du code mort.
+ */

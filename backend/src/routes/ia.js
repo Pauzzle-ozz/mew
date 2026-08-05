@@ -4,146 +4,51 @@ const configUtilisateur = require('../llm/configUtilisateur');
 const { testerConnexion } = require('../llm/testConnexion');
 const { adaptateur: chargerAdaptateur } = require('../llm/adapters');
 const {
-  fournisseurs, fournisseur: fournisseurDuCatalogue, ROLES, verifieLe
+  fournisseursAvecGuides, fournisseur: fournisseurDuCatalogue, ROLES, verifieLe
 } = require('../llm/providers');
+const { OUTILS, TACHES } = require('../llm/taches');
 const { aiRateLimiter } = require('../middleware/rateLimiter');
-const config = require('../config');
-const { creer } = require('../lib/logger');
+const reglages = require('./iaReglages');
+const { log, statutPour, echouer, erreurServeur, etatDeLaConfiguration } = require('./iaCommun');
 
 const router = express.Router();
-const log = creer('IA');
 
 /**
  * ========================================
  * REGLAGES DU MOTEUR D'IA
  * ========================================
  *
- * Ces routes servent une seule idee : c'est l'UTILISATEUR qui choisit son
- * fournisseur et son modele, depuis l'interface, avec sa propre cle. Plus
- * besoin d'ouvrir un fichier .env dans un editeur de texte.
+ * Ces routes servent une seule idee : c'est l'UTILISATEUR qui choisit ses
+ * fournisseurs et ses modeles, depuis l'interface, avec ses propres cles.
+ * Plus besoin d'ouvrir un fichier .env dans un editeur de texte.
  *
- * DEUX REGLES QUI GOUVERNENT TOUT CE FICHIER
- *
- * 1. La cle API ne repart JAMAIS vers le navigateur. Une seule fonction a le
- *    droit de decrire la configuration ici : configUtilisateur.lireMasquee().
- *    Elle rend « sk-p...4f2a ». On ne journalise pas non plus le corps des
- *    requetes : il contient la cle en clair.
- *
- * 2. Le limiteur de requetes IA n'est PAS applique globalement. Lire le
- *    catalogue ou enregistrer un choix ne coute rien et n'appelle personne :
- *    les brider n'aurait aucun sens, et empecherait de reparer une
- *    configuration au pire moment. Seul /tester, qui fait un vrai appel au
- *    fournisseur, passe par le limiteur.
+ * Ce fichier porte ce qui LIT ou ESSAIE (le catalogue, la liste des modeles,
+ * le test de connexion). Tout ce qui ECRIT vit dans ./iaReglages.js, monte
+ * juste en dessous. Les regles communes aux deux sont dans ./iaCommun.js.
  *
  * NOTE SUR L'AUTHENTIFICATION : comme /api/capacites, ces routes ne sont pas
  * derriere le middleware d'authentification. Mew est concu pour tourner sur la
  * machine de son utilisateur, en ecoute sur 127.0.0.1 (voir SECURITY.md). Si
  * un jour Mew est expose a plusieurs personnes, ces routes devront etre
- * protegees en premier : elles manipulent une cle API.
+ * protegees en premier : elles manipulent des cles API.
  */
-
-/* ------------------------------------------------------------------ */
-/* Reponses                                                            */
-/* ------------------------------------------------------------------ */
-
-/** Statut HTTP correspondant a un code d'erreur du contrat des adaptateurs. */
-const STATUT_PAR_CODE = {
-  CLE_INVALIDE: 401,
-  QUOTA_DEPASSE: 429,
-  MODELE_INTROUVABLE: 404,
-  TIMEOUT: 504,
-  RESEAU: 502,
-  FOURNISSEUR: 502
-};
-
-const statutPour = (code) => (
-  Object.prototype.hasOwnProperty.call(STATUT_PAR_CODE, code) ? STATUT_PAR_CODE[code] : 502
-);
-
-/**
- * La configuration masquee, plus quelques alias de noms.
- *
- * POURQUOI DES ALIAS : l'ecran de reglages a ete ecrit en parallele de ces
- * routes, et il lit `cleMasquee` / `cleEnregistree` la ou on ecrit `cleApi` /
- * `aUneCle`. Envoyer les deux ecritures coute trois lignes et evite un ecran
- * qui affiche « aucune cle » alors qu'une cle est bien enregistree. A
- * supprimer le jour ou les deux cotes seront alignes.
- */
-function configPourInterface() {
-  const masquee = configUtilisateur.lireMasquee();
-  return {
-    ...masquee,
-    cleMasquee: masquee.cleApi,
-    cleEnregistree: masquee.aUneCle
-  };
-}
-
-const echouer = (res, statut, message, code) => res.status(statut).json({
-  success: false,
-  error: message,
-  ...(code ? { code } : {})
-});
-
-/**
- * Le filet de securite. On journalise le MESSAGE, jamais l'objet d'erreur
- * complet ni le corps de la requete : la cle de l'utilisateur s'y trouve.
- */
-const erreurServeur = (res, erreur, ou) => {
-  log.error(`${ou} :`, erreur && erreur.message);
-  return echouer(res, 500, 'Erreur serveur inattendue pendant la configuration du moteur d\'IA.');
-};
-
-/* ------------------------------------------------------------------ */
-/* Etat courant                                                        */
-/* ------------------------------------------------------------------ */
-
-/**
- * D'ou vient la configuration reellement utilisee, et l'interface a-t-elle le
- * droit de la modifier ?
- *
- * Quand backend/.env impose une cle, le fichier de l'utilisateur existe
- * peut-etre encore mais il ne sert a rien : il faut le dire, sinon on
- * enregistre un choix qui n'a aucun effet et personne ne comprend pourquoi.
- */
-function etatDeLaConfiguration() {
-  const verrouilleParEnv = config.ia.source === 'env';
-
-  return {
-    source: config.ia.source,             // 'env' | 'fichier' | 'aucune'
-    verrouilleParEnv,
-    active: config.capacites.ia,
-    ...(verrouilleParEnv ? {
-      note: 'Le moteur d\'IA est impose par le fichier backend/.env de cette installation. '
-        + 'Pour choisir toi-meme, retire OPENAI_API_KEY de ce fichier puis relance le serveur.'
-    } : {})
-  };
-}
-
-/**
- * Vide le client OpenAI garde en memoire par aiService.
- *
- * POURQUOI : aiService construit son client au premier appel et le conserve.
- * Sans ce coup de balai, changer de fournisseur depuis l'interface n'aurait
- * aucun effet avant un redemarrage du serveur — un bug particulierement
- * deroutant, puisque l'ecran de reglages afficherait la nouvelle valeur.
- */
-function oublierLeClientIa() {
-  try {
-    const aiService = require('../services/aiService');
-    if (aiService && aiService._client) aiService._client = null;
-  } catch (_) {
-    // aiService peut ne pas etre chargeable (dependance absente) : ce n'est
-    // pas une raison pour faire echouer l'enregistrement du choix.
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /* GET /api/ia/fournisseurs                                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * Le catalogue complet : de la donnee publique, aucune cle nulle part.
- * L'interface s'en sert pour construire ses deux menus deroulants.
+ * Tout ce qu'il faut pour construire l'ecran Parametres, en un appel.
+ *
+ * De la donnee publique, aucune cle nulle part :
+ *   fournisseurs : le catalogue, chaque entree augmentee de son guide
+ *                  (atouts, limites, confidentialite, comment obtenir la cle)
+ *                  et chaque modele de sa note. Les mis en avant d'abord.
+ *   outils       : les cinq outils de Mew, et ce que chacun calcule TOUT SEUL.
+ *   taches       : les points ou un modele est appele, et a quel outil ils
+ *                  appartiennent. C'est ce qui permet a l'interface de dire,
+ *                  outil par outil, ce qui passe par l'IA et ce qui n'y passe
+ *                  pas — et de laisser couper l'un sans perdre l'autre.
  */
 router.get('/fournisseurs', (req, res) => {
   try {
@@ -154,7 +59,9 @@ router.get('/fournisseurs', (req, res) => {
         // honnetement que ce sont des ordres de grandeur.
         verifieLe,
         roles: ROLES,
-        fournisseurs: fournisseurs(),
+        fournisseurs: fournisseursAvecGuides(),
+        outils: OUTILS,
+        taches: TACHES,
         etat: etatDeLaConfiguration()
       }
     });
@@ -164,123 +71,11 @@ router.get('/fournisseurs', (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* GET /api/ia/config                                                  */
+/* Lecture et ecriture des reglages                                    */
 /* ------------------------------------------------------------------ */
 
-/**
- * La configuration enregistree, MASQUEE.
- * `aUneCle` permet a l'interface d'afficher « cle enregistree » sans jamais
- * recevoir la cle : l'utilisateur n'a pas a la ressaisir pour changer de
- * modele.
- */
-router.get('/config', (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: {
-        ...configPourInterface(),
-        etat: etatDeLaConfiguration()
-      }
-    });
-  } catch (erreur) {
-    erreurServeur(res, erreur, 'Lecture de la configuration');
-  }
-});
-
-/* ------------------------------------------------------------------ */
-/* PUT /api/ia/config                                                  */
-/* ------------------------------------------------------------------ */
-
-/**
- * Enregistre le choix de l'utilisateur.
- * Body : { fournisseur, cleApi, baseURL, modeles: { redaction, extraction } }
- *
- * Toute la validation vit dans configUtilisateur.valider() : fournisseur
- * connu, adresse en http/https, cle presente si le fournisseur l'exige,
- * modeles coherents. Les avertissements (prefixe de cle inhabituel, modele
- * absent du catalogue) n'empechent pas l'enregistrement, ils accompagnent la
- * reponse.
- */
-router.put('/config', async (req, res) => {
-  try {
-    const corps = req.body || {};
-
-    // Une cle vide alors qu'une cle est deja enregistree veut dire « je ne
-    // change pas ma cle », pas « efface-la » : l'interface ne l'a jamais
-    // recue, elle ne peut pas la renvoyer.
-    const existante = configUtilisateur.lire();
-    const memeFournisseur = existante.fournisseur !== ''
-      && existante.fournisseur === String(corps.fournisseur || '').trim();
-    const cleApi = (typeof corps.cleApi === 'string' && corps.cleApi.trim() !== '')
-      ? corps.cleApi
-      : (memeFournisseur ? existante.cleApi : '');
-
-    // Les modeles peuvent arriver imbriques (modeles.redaction, le vocabulaire
-    // des roles) ou a plat (modeleRedaction). On accepte les deux plutot que
-    // de perdre silencieusement le choix de l'utilisateur.
-    const modelesRecus = (corps.modeles && typeof corps.modeles === 'object') ? corps.modeles : {};
-
-    const { configMasquee, avertissements } = await configUtilisateur.ecrire({
-      fournisseur: corps.fournisseur,
-      cleApi,
-      baseURL: corps.baseURL,
-      modeles: {
-        redaction: modelesRecus.redaction || corps.modeleRedaction,
-        extraction: modelesRecus.extraction || corps.modeleExtraction
-      }
-    });
-
-    oublierLeClientIa();
-    // On journalise le fait, jamais la cle.
-    log.info(`Moteur d'IA enregistre : ${configMasquee.fournisseur}`);
-
-    res.json({
-      success: true,
-      data: {
-        ...configMasquee,
-        cleMasquee: configMasquee.cleApi,
-        cleEnregistree: configMasquee.aUneCle,
-        etat: etatDeLaConfiguration(),
-        avertissements
-      }
-    });
-  } catch (erreur) {
-    if (erreur && erreur.code === 'CONFIG_INVALIDE') {
-      return echouer(res, 400, erreur.message, erreur.code);
-    }
-    return erreurServeur(res, erreur, 'Enregistrement de la configuration');
-  }
-});
-
-/* ------------------------------------------------------------------ */
-/* DELETE /api/ia/config                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * Oublie tout : le fichier est supprime, la cle avec lui.
- * C'est la reponse a « comment je retire ma cle de cette machine ? ».
- */
-router.delete('/config', async (req, res) => {
-  try {
-    const supprime = await configUtilisateur.effacer();
-    oublierLeClientIa();
-    log.info('Configuration du moteur d\'IA effacee');
-
-    res.json({
-      success: true,
-      data: {
-        supprime,
-        message: supprime
-          ? 'Configuration effacee : ta cle API n\'est plus enregistree sur cette machine.'
-          : 'Il n\'y avait aucune configuration a effacer.',
-        ...configPourInterface(),
-        etat: etatDeLaConfiguration()
-      }
-    });
-  } catch (erreur) {
-    erreurServeur(res, erreur, 'Effacement de la configuration');
-  }
-});
+// Monte /etat, /comptes/:fournisseur, /taches et /config.
+router.use(reglages);
 
 /* ------------------------------------------------------------------ */
 /* POST /api/ia/tester                                                 */
@@ -300,31 +95,31 @@ router.delete('/config', async (req, res) => {
 router.post('/tester', aiRateLimiter, async (req, res) => {
   try {
     const corps = req.body || {};
+    const idFournisseur = String(corps.fournisseur || '').trim();
 
-    // Meme logique que pour l'enregistrement : sans cle dans la requete, on
-    // reprend celle deja enregistree pour ce fournisseur. Ca permet de
-    // retester apres coup sans jamais renvoyer la cle au navigateur.
-    const existante = configUtilisateur.lire();
-    const memeFournisseur = existante.fournisseur !== ''
-      && existante.fournisseur === String(corps.fournisseur || '').trim();
+    // Sans cle dans la requete, on reprend celle deja enregistree POUR CE
+    // FOURNISSEUR. Ca permet de retester apres coup sans jamais renvoyer la
+    // cle au navigateur. Depuis le multi-comptes, on la cherche dans la liste
+    // des acces : la cle Anthropic ne doit pas servir a tester OpenAI.
+    const comptes = configUtilisateur.lireV2().comptes;
+    const enregistre = comptes.find((c) => c.fournisseur === idFournisseur) || null;
+
     const cleApi = (typeof corps.cleApi === 'string' && corps.cleApi.trim() !== '')
       ? corps.cleApi
-      : (memeFournisseur ? existante.cleApi : '');
+      : (enregistre ? enregistre.cleApi : '');
 
     const resultat = await testerConnexion({
-      fournisseur: corps.fournisseur,
+      fournisseur: idFournisseur,
       cleApi,
-      baseURL: corps.baseURL,
+      baseURL: corps.baseURL || (enregistre ? enregistre.baseURL : ''),
       // On teste par defaut le modele de redaction : c'est celui dont le
       // respect du format compte le plus.
-      modele: corps.modele
-        || (corps.modeles && corps.modeles.redaction)
-        || (memeFournisseur ? existante.modeles.redaction : '')
+      modele: corps.modele || (corps.modeles && corps.modeles.redaction) || ''
     });
 
     log.info(`Test ${resultat.ok ? 'reussi' : 'echoue'} (etape ${resultat.etape})`);
-    // `cout` est un alias de `coutEstime`, pour la meme raison que
-    // `cleMasquee` plus haut : les deux cotes ont ete ecrits en parallele.
+    // `cout` est un alias de `coutEstime` : les deux cotes du projet ont ete
+    // ecrits en parallele.
     res.json({ success: true, data: { ...resultat, cout: resultat.coutEstime } });
   } catch (erreur) {
     erreurServeur(res, erreur, 'Test de connexion');
@@ -360,7 +155,17 @@ async function listerLesModeles(req, res, cleFournie) {
       `Le fournisseur « ${idFournisseur || '(vide)'} » n'existe pas dans Mew.`);
   }
 
-  const baseURL = adresseDemandee || (f && f.baseURL) || '';
+  // La cle : celle fournie dans le corps (POST), sinon celle deja enregistree
+  // pour CE fournisseur. On ne lit jamais de cle dans l'URL : elle finirait
+  // dans les journaux du serveur et dans l'historique du navigateur.
+  const enregistre = configUtilisateur.lireV2().comptes
+    .find((c) => c.fournisseur === idFournisseur) || null;
+
+  const baseURL = adresseDemandee
+    || (enregistre && enregistre.baseURL)
+    || (f && f.baseURL)
+    || '';
+
   if (baseURL === '') {
     return echouer(res, 400,
       'Saisis d\'abord l\'adresse de ton service : sans elle, impossible de lui demander ses modeles.');
@@ -369,12 +174,7 @@ async function listerLesModeles(req, res, cleFournie) {
   const verification = configUtilisateur.interne.verifierAdresse(baseURL);
   if (!verification.ok) return echouer(res, 400, verification.erreur);
 
-  // La cle : celle fournie dans le corps (POST), sinon celle deja enregistree
-  // pour CE fournisseur. On ne lit jamais de cle dans l'URL : elle finirait
-  // dans les journaux du serveur et dans l'historique du navigateur.
-  const existante = configUtilisateur.lire();
-  const cleApi = cleFournie
-    || (existante.fournisseur === idFournisseur ? existante.cleApi : '');
+  const cleApi = cleFournie || (enregistre ? enregistre.cleApi : '');
 
   try {
     const adaptateur = chargerAdaptateur((f && f.adaptateur) || 'openai-compatible');

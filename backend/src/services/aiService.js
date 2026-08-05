@@ -106,6 +106,19 @@ function lireReglages() {
   return config.ia;
 }
 
+/**
+ * Les taches, chargees paresseusement comme le reste : ce module est importe
+ * par le serveur entier, et « Mew demarre toujours » est un invariant.
+ */
+const registreTaches = chargeur('../llm/taches');
+
+/** Le role d'une tache, sans jamais lever. Une tache inconnue vaut extraction. */
+function roleDeLaTache(idTache) {
+  const registre = registreTaches();
+  if (!registre) return 'extraction';
+  return registre.roleDe(idTache);
+}
+
 /* ------------------------------------------------------------------ */
 /* Normalisation : d'ou qu'elle vienne, la configuration a une forme   */
 /* ------------------------------------------------------------------ */
@@ -137,6 +150,7 @@ function normaliser(brut) {
   const timeout = Number(source.timeoutMs !== undefined ? source.timeoutMs : source.timeout);
 
   return {
+    coupee: false,
     fournisseurId: texte(
       source.fournisseur && typeof source.fournisseur === 'object' ? source.fournisseur.id : source.fournisseur,
       source.idFournisseur,
@@ -149,17 +163,60 @@ function normaliser(brut) {
       redaction: texte(modeles.redaction, source.modeleRedaction),
       extraction: texte(modeles.extraction, source.modeleExtraction)
     },
+    // Le modele choisi pour CETTE tache precise. Vide quand la configuration
+    // ne raisonne qu'en roles (fichier .env, tests) : on retombe alors sur
+    // `modeles`, exactement comme avant.
+    modeleTache: texte(source.modele),
     timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 0
   };
 }
 
 /**
- * La configuration reellement appliquee, quelle que soit sa provenance
- * (.env prioritaire, puis le choix de l'utilisateur : l'arbitrage est fait
- * dans config/index.js).
+ * La configuration reellement appliquee POUR UNE TACHE, quelle que soit sa
+ * provenance (.env prioritaire, puis le choix de l'utilisateur : l'arbitrage
+ * est fait dans config/index.js).
+ *
+ * Deux chemins, et c'est voulu :
+ *   - une source injectee (les tests, un branchement) raisonne en ROLES, comme
+ *     avant. Rien n'a change pour elle.
+ *   - sinon on passe par config.ia.pourTache(), qui sait remonter un acces
+ *     DIFFERENT selon la tache — c'est ce qui permet a un modele de lire les
+ *     CV pendant qu'un autre, chez un autre fournisseur, redige les lettres.
+ *
+ * @returns {Object|null} null si rien n'est exploitable ; `{coupee: true}`
+ *   quand l'utilisateur a explicitement eteint cette tache.
  */
-function configurationEffective() {
-  return normaliser(lireReglages());
+function configurationEffective(idTache) {
+  if (typeof sourceInjectee === 'function') return normaliser(lireReglages());
+
+  // Le garde sur `pourTache` protege le cas ou config/ serait une version
+  // anterieure (module recharge, installation partiellement mise a jour) :
+  // on retombe alors sur l'ancien raisonnement par roles au lieu de planter.
+  if (!config.ia || typeof config.ia.pourTache !== 'function') {
+    return normaliser(lireReglages());
+  }
+
+  let pour;
+  try {
+    pour = config.ia.pourTache(idTache);
+  } catch (_) {
+    return normaliser(lireReglages());
+  }
+
+  if (!pour) return null;
+  if (pour.coupee) return { coupee: true };
+
+  return normaliser({
+    fournisseur: pour.fournisseur,
+    adaptateur: pour.adaptateur,
+    baseURL: pour.baseURL,
+    cleApi: pour.cleApi,
+    modele: pour.modele,
+    // Repli par role. Rempli seulement quand le .env pilote l'installation :
+    // ailleurs il est vide a dessein, pour que le repli soit le catalogue DU
+    // FOURNISSEUR DE LA TACHE et pas un nom de modele venu d'ailleurs.
+    modeles: pour.modeles
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -182,16 +239,40 @@ function erreurConfiguration(message) {
   return erreur;
 }
 
+/**
+ * L'utilisateur a COUPE cette tache depuis les Parametres.
+ *
+ * Ce n'est pas une panne, c'est un choix — et le distinguer compte : le
+ * message ne doit pas envoyer verifier une cle qui va tres bien, il doit
+ * rappeler ou rallumer l'interrupteur.
+ */
+function erreurDesactivee(idTache) {
+  const registre = registreTaches();
+  const t = registre ? registre.tache(idTache) : null;
+
+  const erreur = new Error(
+    `L'IA est coupee pour « ${t ? t.nom : idTache} » dans tes Parametres (onglet `
+    + '« Outils & modeles »). Le reste de cet outil continue de fonctionner : '
+    + 'rallume cette tache si tu veux aussi le texte redige.'
+  );
+  erreur.code = 'IA_DESACTIVEE';
+  return erreur;
+}
+
 /* ------------------------------------------------------------------ */
 /* Le service                                                          */
 /* ------------------------------------------------------------------ */
 
 class AIService {
   constructor() {
-    // Ce qui a ete resolu la derniere fois, avec l'empreinte de la
+    // Ce qui a ete resolu la derniere fois, PAR TACHE, avec l'empreinte de la
     // configuration qui l'a produit. Pas un cache definitif : une simple
     // memoire, invalidee des que la configuration change.
-    this._memo = null;
+    //
+    // Indexee par tache depuis que deux taches peuvent viser deux fournisseurs
+    // differents : une memoire unique se serait fait ecraser a chaque
+    // alternance entre « lire un CV » et « rediger une lettre ».
+    this._memo = new Map();
     // Point d'injection pour les tests : un faux adaptateur, sans reseau.
     this._adaptateurInjecte = null;
   }
@@ -209,11 +290,11 @@ class AIService {
    * une empreinte de la configuration.)
    */
   get _client() {
-    return this._memo;
+    return this._memo.size > 0 ? this._memo : null;
   }
 
   set _client(valeur) {
-    if (!valeur) this._memo = null;
+    if (!valeur) this._memo.clear();
   }
 
   /* --- Tests et branchements ---------------------------------------- */
@@ -225,7 +306,7 @@ class AIService {
    */
   _utiliserConfiguration(lecteur) {
     sourceInjectee = typeof lecteur === 'function' ? lecteur : null;
-    this._memo = null;
+    this._memo.clear();
   }
 
   /**
@@ -234,7 +315,7 @@ class AIService {
    */
   _utiliserAdaptateur(adaptateur) {
     this._adaptateurInjecte = adaptateur || null;
-    this._memo = null;
+    this._memo.clear();
   }
 
   /* --- Resolution de la configuration ------------------------------- */
@@ -248,25 +329,31 @@ class AIService {
     const cle = c.cleApi ? crypto.createHash('sha256').update(c.cleApi).digest('hex') : '';
     return [
       c.fournisseurId, c.adaptateurId, c.baseURL, cle,
-      c.modeles.redaction, c.modeles.extraction, c.timeoutMs
+      c.modeleTache, c.modeles.redaction, c.modeles.extraction, c.timeoutMs
     ].join('|');
   }
 
   /**
    * Tout ce qu'il faut pour appeler un modele, sauf le modele lui-meme.
-   * @throws {Error} code IA_NON_CONFIGUREE, message en francais
+   *
+   * @param {string} [idTache] la tache pour laquelle on appelle. Absente, on
+   *   retombe sur le raisonnement par roles — c'est le cas du .env et des tests.
+   * @throws {Error} code IA_NON_CONFIGUREE ou IA_DESACTIVEE, message en francais
    */
-  _base() {
-    const brute = configurationEffective();
+  _base(idTache) {
+    const brute = configurationEffective(idTache);
+
+    // L'utilisateur a coupe cette tache : ce n'est pas une panne, et le
+    // message ne doit surtout pas l'envoyer verifier sa cle.
+    if (brute && brute.coupee) throw erreurDesactivee(idTache);
 
     if (!brute || !brute.fournisseurId) {
       throw erreurConfiguration('Aucun fournisseur d\'IA n\'est configure.');
     }
 
-    const empreinte = this._empreinte(brute);
-    if (this._memo && this._memo.empreinte === empreinte && !this._adaptateurInjecte) {
-      return this._memo.base;
-    }
+    const cleMemo = `${idTache || ''}|${this._empreinte(brute)}`;
+    const memorise = this._memo.get(cleMemo);
+    if (memorise && !this._adaptateurInjecte) return memorise;
 
     const acces = registreFournisseurs();
     const connu = acces ? acces.fournisseur(brute.fournisseurId) : null;
@@ -311,28 +398,35 @@ class AIService {
       baseURL,
       cleApi: brute.cleApi,
       modeles: brute.modeles,
+      modeleTache: brute.modeleTache,
       timeoutMs: brute.timeoutMs || Number(config.ia.timeoutMs) || undefined
     };
 
-    this._memo = { empreinte, base };
+    this._memo.set(cleMemo, base);
     return base;
   }
 
   /**
-   * Traduit un role en nom de modele.
+   * Traduit une tache (ou un role) en nom de modele.
    *
-   * Ordre : le nom explicitement demande par l'appelant, puis le modele
-   * choisi par l'utilisateur pour ce role, puis son modele d'extraction
-   * (historiquement le repli), puis le premier modele du catalogue capable
-   * de tenir ce role chez ce fournisseur.
+   * Ordre, du plus precis au plus general :
+   *   1. le nom explicitement demande par l'appelant ;
+   *   2. le modele choisi pour CETTE tache dans les Parametres ;
+   *   3. le modele du role (installation pilotee par .env, tests) ;
+   *   4. l'autre role — mieux vaut un modele un peu cher qu'aucun modele ;
+   *   5. le premier modele du catalogue capable de tenir ce role chez ce
+   *      fournisseur.
    */
-  _modele({ role, model }, base) {
+  _modele({ tache, role, model }, base) {
     if (typeof model === 'string' && model.trim() !== '') return model.trim();
+    if (base.modeleTache) return base.modeleTache;
 
-    // Le projet n'a que deux roles. Tout le reste — y compris un role absent,
-    // ou un nom qui existe deja sur tout objet JavaScript comme
-    // « constructor » — vaut « extraction », le choix economique.
-    const roleReel = role === 'redaction' ? 'redaction' : 'extraction';
+    // Le projet n'a que deux roles. Un role absent, farfelu, ou portant un nom
+    // qui existe deja sur tout objet JavaScript (« constructor ») vaut
+    // « extraction », le choix economique. A defaut de role explicite, c'est la
+    // tache qui le donne.
+    const demande = role === undefined && tache !== undefined ? roleDeLaTache(tache) : role;
+    const roleReel = demande === 'redaction' ? 'redaction' : 'extraction';
 
     const choisi = base.modeles[roleReel] || base.modeles.extraction || base.modeles.redaction;
     if (choisi) return choisi;
@@ -350,16 +444,48 @@ class AIService {
 
   /**
    * Cette instance peut-elle appeler un modele ?
-   * Permet aux services d'offrir un mode degrade au lieu de planter.
-   * Ne leve jamais : une question ne doit pas pouvoir casser une page.
+   *
+   * Permet aux services d'offrir un mode degrade au lieu de planter — c'est ce
+   * qui fait qu'un outil coupe continue d'afficher tout ce que le code calcule
+   * tout seul. Ne leve jamais : une question ne doit pas pouvoir casser une page.
+   *
+   * @param {string} [idTache] pose la question POUR CETTE TACHE : elle peut
+   *   avoir ete coupee, ou viser un fournisseur sans cle, alors que le reste
+   *   de l'installation fonctionne tres bien.
    */
-  estDisponible() {
+  estDisponible(idTache) {
     try {
-      const base = this._base();
-      this._modele({ role: 'extraction' }, base);
+      const base = this._base(idTache);
+      this._modele(
+        idTache === undefined ? { role: 'extraction' } : { tache: idTache },
+        base
+      );
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /**
+   * POURQUOI cette tache n'est pas disponible.
+   *
+   * « Tu l'as coupee » et « aucune cle n'est enregistree » se corrigent a deux
+   * endroits differents : les confondre envoie l'utilisateur verifier une cle
+   * qui va tres bien. Les services s'en servent pour ecrire le bon message.
+   *
+   * @param {string} [idTache]
+   * @returns {'coupee'|'non-configuree'|null} null quand tout va bien
+   */
+  raisonIndisponible(idTache) {
+    try {
+      const base = this._base(idTache);
+      this._modele(
+        idTache === undefined ? { role: 'extraction' } : { tache: idTache },
+        base
+      );
+      return null;
+    } catch (erreur) {
+      return erreur && erreur.code === 'IA_DESACTIVEE' ? 'coupee' : 'non-configuree';
     }
   }
 
@@ -383,7 +509,7 @@ class AIService {
    * @returns {Promise<string>} le texte renvoye par le modele
    */
   async _appeler(prompt, options, jsonMode) {
-    const base = this._base();
+    const base = this._base(options.tache);
     const modele = this._modele(options, base);
 
     const reponse = await base.adaptateur.completer({
