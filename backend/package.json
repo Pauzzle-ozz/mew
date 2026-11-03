@@ -35,12 +35,12 @@
     "@supabase/supabase-js": "^2.93.3",
     "axios": "^1.13.2",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
+    "dotenv": "^18.0.9",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "multer": "^2.0.2",
     "openai": "^6.19.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^2.2.2",
     "resend": "^6.9.1"
   },
   "optionalDependencies": {
